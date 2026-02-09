@@ -965,16 +965,6 @@ for _, player := range players {
 }
 ```
 
-### 3. 错误处理
-
-```go
-session := config.Default().MustGetNebulaSessionPool()
-result, err := session.Execute(nGQL)
-if err != nil {
-    return gError.DbError(err, "操作失败")
-}
-```
-
 ## 注意事项
 
 1. **值转义**：构建器会自动处理字符串值的转义，无需手动处理

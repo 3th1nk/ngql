@@ -172,7 +172,6 @@ go test -v -run TestIntegration_IndexOperations
 1. **NebulaGraph 服务**
    - 版本: 3.8.0
    - 状态: 运行中
-   - 连接配置: 在 `config/default.conf` 中设置
 
 2. **Go 环境**
    - 版本: 1.18+

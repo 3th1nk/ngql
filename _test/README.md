@@ -54,11 +54,6 @@
 
 1. **NebulaGraph 服务运行中**
    - 确保 NebulaGraph 服务已启动
-   - 默认连接配置已在项目中设置
-
-2. **配置文件**
-   - 确保 `config/default.conf` 中的 NebulaGraph 配置正确
-   - 或者通过环境变量设置连接参数
 
 ### 运行所有集成测试
 
