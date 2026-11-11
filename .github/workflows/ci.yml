@@ -43,17 +43,8 @@ jobs:
   integration-test:
     name: Integration Tests (NebulaGraph v3.8.0)
     runs-on: ubuntu-latest
-    # 通过 docker-in-docker 启动 _test/docker-compose.yml 集群，
+    # ubuntu-latest runner 自带 Docker 与 compose 插件，直接起集群即可；
     # 测试的 TestMain 会自动完成集群初始化（ADD HOSTS / 建空间 / 就绪探测）
-    services:
-      docker:
-        image: docker:27-dind
-        options: --privileged
-    env:
-      DOCKER_HOST: tcp://docker:2376
-      DOCKER_TLS_CERTDIR: /certs
-      # dind 内的 graphd 端口映射通过 docker 服务主机名访问
-      NEBULA_HOST: docker
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -63,4 +54,5 @@ jobs:
       - name: 启动 NebulaGraph 集群
         run: docker compose -f _test/docker-compose.yml up -d
       - name: 运行集成测试
+        # graphd 端口映射至 runner 本机，NEBULA_HOST 使用默认 127.0.0.1
         run: go test ./_test -v -count=1 -timeout 15m
