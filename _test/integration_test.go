@@ -43,8 +43,10 @@ func TestMain(m *testing.M) {
 }
 
 // executeNGQL 执行 nGQL 语句并返回结果
+// 注意：SessionPool 禁止裸 USE 语句（执行后会强制切回 pool 配置的空间），
+// 空间上下文语句统一使用 "USE test_space; <stmt>" 复合执行，确保落点正确
 func executeNGQL(t *testing.T, nGQL string) *nebula.ResultSet {
-	result, err := sessionPool.Execute(nGQL)
+	result, err := sessionPool.Execute("USE " + testSpace + "; " + nGQL)
 	if err != nil {
 		t.Fatalf("执行 nGQL 失败: %s\n错误: %v", nGQL, err)
 	}
@@ -57,6 +59,32 @@ func executeNGQL(t *testing.T, nGQL string) *nebula.ResultSet {
 
 // executeNGQLIgnoreError 执行 nGQL 语句，忽略错误（用于清理操作）
 func executeNGQLIgnoreError(t *testing.T, nGQL string) {
+	result, err := sessionPool.Execute("USE " + testSpace + "; " + nGQL)
+	if err != nil {
+		t.Logf("执行 nGQL 出错（已忽略）: %s\n错误: %v", nGQL, err)
+		return
+	}
+	if !result.IsSucceed() {
+		t.Logf("nGQL 执行失败（已忽略）: %s\n错误码: %d, 错误信息: %s",
+			nGQL, result.GetErrorCode(), result.GetErrorMsg())
+	}
+}
+
+// executeGlobalNGQL 执行全局 nGQL 语句（不带空间上下文，如 CREATE/DROP SPACE）
+func executeGlobalNGQL(t *testing.T, nGQL string) *nebula.ResultSet {
+	result, err := sessionPool.Execute(nGQL)
+	if err != nil {
+		t.Fatalf("执行 nGQL 失败: %s\n错误: %v", nGQL, err)
+	}
+	if !result.IsSucceed() {
+		t.Fatalf("nGQL 执行失败: %s\n错误码: %d, 错误信息: %s",
+			nGQL, result.GetErrorCode(), result.GetErrorMsg())
+	}
+	return result
+}
+
+// executeGlobalNGQLIgnoreError 执行全局 nGQL 语句并忽略错误（用于清理操作）
+func executeGlobalNGQLIgnoreError(t *testing.T, nGQL string) {
 	result, err := sessionPool.Execute(nGQL)
 	if err != nil {
 		t.Logf("执行 nGQL 出错（已忽略）: %s\n错误: %v", nGQL, err)
@@ -68,6 +96,35 @@ func executeNGQLIgnoreError(t *testing.T, nGQL string) {
 	}
 }
 
+// waitForSchema 等待 Tag/Edge schema 对 DML 可见
+// DESCRIBE 直查 meta 立即可见，但 INSERT 等 DML 走 graphd 本地 schema 缓存（按心跳周期刷新），
+// 因此 DESCRIBE 通过后需再等待一个缓存刷新周期
+func waitForSchema(t *testing.T, stmt string) {
+	for i := 0; i < 30; i++ {
+		result, err := sessionPool.Execute("USE " + testSpace + "; " + stmt)
+		if err == nil && result.IsSucceed() {
+			time.Sleep(2 * time.Second) // 等待 graphd schema 缓存刷新
+			return
+		}
+		time.Sleep(time.Second)
+	}
+	t.Fatalf("等待 schema 可见超时: %s", stmt)
+}
+
+// rebuildTagIndexWithRetry 重建 Tag 索引并等待其就绪
+// REBUILD 对索引可见性的要求高于 DESCRIBE（需 schema 分发至 storaged），就绪前会报 SemanticError
+func rebuildTagIndexWithRetry(t *testing.T, indexName string) {
+	stmt := "REBUILD TAG INDEX " + indexName
+	for i := 0; i < 30; i++ {
+		result, err := sessionPool.Execute("USE " + testSpace + "; " + stmt)
+		if err == nil && result.IsSucceed() {
+			return
+		}
+		time.Sleep(time.Second)
+	}
+	t.Fatalf("重建索引 %s 超时", indexName)
+}
+
 // TestIntegration_FullWorkflow 完整的集成测试工作流
 func TestIntegration_FullWorkflow(t *testing.T) {
 	// 清理可能存在的测试图空间
@@ -75,7 +132,7 @@ func TestIntegration_FullWorkflow(t *testing.T) {
 	cleanupNGQL := ngql.NewDropSpace(testSpace).
 		IfExists().
 		String()
-	executeNGQLIgnoreError(t, cleanupNGQL)
+	executeGlobalNGQLIgnoreError(t, cleanupNGQL)
 	time.Sleep(2 * time.Second) // 等待删除完成
 
 	// 1. 创建测试图空间
@@ -87,13 +144,8 @@ func TestIntegration_FullWorkflow(t *testing.T) {
 		Comment("集成测试图空间").
 		String()
 	t.Logf("执行: %s", createSpaceNGQL)
-	executeNGQL(t, createSpaceNGQL)
+	executeGlobalNGQL(t, createSpaceNGQL)
 	time.Sleep(10 * time.Second) // 等待图空间创建完成（NebulaGraph 异步创建）
-
-	// 使用测试图空间
-	useSpaceNGQL := ngql.NewUseSpace(testSpace).String()
-	t.Logf("执行: %s", useSpaceNGQL)
-	executeNGQL(t, useSpaceNGQL)
 
 	// 2. 创建 Tag
 	t.Log("=== 2. 创建 Tag ===")
@@ -114,7 +166,8 @@ func TestIntegration_FullWorkflow(t *testing.T) {
 		String()
 	t.Logf("执行: %s", createTeamTagNGQL)
 	executeNGQL(t, createTeamTagNGQL)
-	time.Sleep(5 * time.Second) // 等待 Tag 创建完成（NebulaGraph 异步创建）
+	waitForSchema(t, "DESCRIBE TAG player")
+	waitForSchema(t, "DESCRIBE TAG team")
 
 	// 3. 创建 Edge 类型
 	t.Log("=== 3. 创建 Edge 类型 ===")
@@ -133,7 +186,8 @@ func TestIntegration_FullWorkflow(t *testing.T) {
 		String()
 	t.Logf("执行: %s", createServeEdgeNGQL)
 	executeNGQL(t, createServeEdgeNGQL)
-	time.Sleep(5 * time.Second) // 等待 Edge 类型创建完成（NebulaGraph 异步创建）
+	waitForSchema(t, "DESCRIBE EDGE follow")
+	waitForSchema(t, "DESCRIBE EDGE serve")
 
 	// 4. 插入顶点数据
 	t.Log("=== 4. 插入顶点数据 ===")
@@ -177,12 +231,9 @@ func TestIntegration_FullWorkflow(t *testing.T) {
 		String()
 	t.Logf("执行: %s", createIndexNGQL)
 	executeNGQL(t, createIndexNGQL)
-	time.Sleep(3 * time.Second) // 等待索引创建完成
 
 	// 重建索引
-	rebuildIndexNGQL := ngql.NewRebuildTagIndex("idx_player_age").String()
-	t.Logf("执行: %s", rebuildIndexNGQL)
-	executeNGQL(t, rebuildIndexNGQL)
+	rebuildTagIndexWithRetry(t, "idx_player_age")
 	time.Sleep(5 * time.Second) // 等待索引构建完成
 
 	// 6. 查询数据 - MATCH
@@ -275,7 +326,7 @@ func TestIntegration_FullWorkflow(t *testing.T) {
 		IfExists().
 		String()
 	t.Logf("执行: %s", dropSpaceNGQL)
-	executeNGQL(t, dropSpaceNGQL)
+	executeGlobalNGQL(t, dropSpaceNGQL)
 
 	t.Log("=== 集成测试完成 ===")
 }
@@ -287,7 +338,7 @@ func TestIntegration_IndexOperations(t *testing.T) {
 	cleanupNGQL := ngql.NewDropSpace(testSpace).
 		IfExists().
 		String()
-	executeNGQLIgnoreError(t, cleanupNGQL)
+	executeGlobalNGQLIgnoreError(t, cleanupNGQL)
 	time.Sleep(2 * time.Second)
 
 	// 创建测试图空间
@@ -297,12 +348,8 @@ func TestIntegration_IndexOperations(t *testing.T) {
 		ReplicaFactor(1).
 		VidTypeFixedString(32).
 		String()
-	executeNGQL(t, createSpaceNGQL)
+	executeGlobalNGQL(t, createSpaceNGQL)
 	time.Sleep(10 * time.Second)
-
-	// 使用测试图空间
-	useSpaceNGQL := ngql.NewUseSpace(testSpace).String()
-	executeNGQL(t, useSpaceNGQL)
 
 	// 创建 player Tag
 	t.Log("=== 创建 player Tag ===")
@@ -332,8 +379,6 @@ func TestIntegration_IndexOperations(t *testing.T) {
 		String()
 	t.Logf("执行: %s", createScoreIndexNGQL)
 	executeNGQL(t, createScoreIndexNGQL)
-
-	// 3. 显示所有 Tag 索引
 	t.Log("=== 3. 显示所有 Tag 索引 ===")
 	showIndexesNGQL := ngql.NewShowTagIndexes().String()
 	t.Logf("执行: %s", showIndexesNGQL)
@@ -349,9 +394,7 @@ func TestIntegration_IndexOperations(t *testing.T) {
 
 	// 5. 重建索引
 	t.Log("=== 5. 重建索引 ===")
-	rebuildIndexNGQL := ngql.NewRebuildTagIndex("idx_player_age").String()
-	t.Logf("执行: %s", rebuildIndexNGQL)
-	executeNGQL(t, rebuildIndexNGQL)
+	rebuildTagIndexWithRetry(t, "idx_player_age")
 
 	// 6. 显示索引状态
 	t.Log("=== 6. 显示索引状态 ===")
@@ -374,7 +417,7 @@ func TestIntegration_IndexOperations(t *testing.T) {
 		IfExists().
 		String()
 	t.Logf("执行: %s", dropSpaceNGQL)
-	executeNGQL(t, dropSpaceNGQL)
+	executeGlobalNGQL(t, dropSpaceNGQL)
 
 	t.Log("=== 索引操作测试完成 ===")
 }
