@@ -88,15 +88,7 @@ func (b *CreateEdgeBuilder) String() string {
 		sb.WriteString(")")
 	}
 
-	// TTL 配置
-	if b.ttlDuration > 0 && b.ttlCol != "" {
-		sb.WriteString(fmt.Sprintf(" TTL_DURATION = %d, TTL_COL = %s", b.ttlDuration, quote(b.ttlCol)))
-	}
-
-	// 注释
-	if b.comment != "" {
-		sb.WriteString(fmt.Sprintf(" COMMENT = %s", quote(b.comment)))
-	}
+	appendTTLAndComment(&sb, b.ttlDuration, b.ttlCol, b.comment)
 
 	return sb.String()
 }
@@ -187,15 +179,7 @@ func (b *AlterEdgeBuilder) String() string {
 		sb.WriteString(strings.Join(opStrs, ", "))
 	}
 
-	// TTL 配置
-	if b.ttlDuration > 0 && b.ttlCol != "" {
-		sb.WriteString(fmt.Sprintf(" TTL_DURATION = %d, TTL_COL = %s", b.ttlDuration, quote(b.ttlCol)))
-	}
-
-	// 注释
-	if b.comment != "" {
-		sb.WriteString(fmt.Sprintf(" COMMENT = %s", quote(b.comment)))
-	}
+	appendTTLAndComment(&sb, b.ttlDuration, b.ttlCol, b.comment)
 
 	return sb.String()
 }

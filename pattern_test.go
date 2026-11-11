@@ -115,6 +115,19 @@ func TestEdgePattern_VariableLengthHops(t *testing.T) {
 	}
 }
 
+func TestEdgePattern_PropertiesOrder(t *testing.T) {
+	pattern := NewEdgePattern(EdgeDirectionBoth).
+		Type("serve").
+		Property("start_year", 2000).
+		Property("end_year", 2015)
+	// 属性按添加顺序输出（保序），双向边带边信息
+	expected := `-[:serve {start_year: 2000, end_year: 2015}]-`
+	got := pattern.String()
+	if got != expected {
+		t.Errorf("Expected: %s, Got: %s", expected, got)
+	}
+}
+
 func TestEdgePattern_LeftDirection(t *testing.T) {
 	pattern := NewEdgePattern(EdgeDirectionLeft)
 	expected := "<-"
@@ -124,10 +137,19 @@ func TestEdgePattern_LeftDirection(t *testing.T) {
 }
 
 func TestEdgePattern_BothDirection(t *testing.T) {
-	pattern := NewEdgePattern(EdgeDirectionBoth)
-	expected := "-"
-	if pattern.String() != expected {
-		t.Errorf("Expected: %s, Got: %s", expected, pattern.String())
+	cases := []struct {
+		pattern  *EdgePattern
+		expected string
+	}{
+		{NewEdgePattern(EdgeDirectionBoth), "-"},
+		{NewEdgePattern(EdgeDirectionBoth).Type("follow"), "-[:follow]-"},
+		{NewEdgePattern(EdgeDirectionBoth).Type("follow").Hops(1, 3), "-[:follow*1..3]-"},
+	}
+	for _, c := range cases {
+		got := c.pattern.String()
+		if got != c.expected {
+			t.Errorf("Expected: %s, Got: %s", c.expected, got)
+		}
 	}
 }
 

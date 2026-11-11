@@ -53,6 +53,39 @@ func TestFormatValueFloat32(t *testing.T) {
 	}
 }
 
+func TestFormatValueIntegerTypes(t *testing.T) {
+	cases := []struct {
+		in       interface{}
+		expected string
+	}{
+		{int8(5), "5"},
+		{int16(-3), "-3"},
+		{int32(100000), "100000"},
+		{uint(7), "7"},
+		{uint8(200), "200"},
+		{uint16(65535), "65535"},
+		{uint32(4294967295), "4294967295"},
+		{uint64(18446744073709551615), "18446744073709551615"},
+	}
+	for _, c := range cases {
+		got := formatValue(c.in)
+		if got != c.expected {
+			t.Errorf("formatValue(%v): Expected: %s, Got: %s", c.in, c.expected, got)
+		}
+	}
+}
+
+func TestFormatValueDefaultBranch(t *testing.T) {
+	// 未知类型转字符串并加引号
+	type point struct {
+		X, Y int
+	}
+	got := formatValue(point{X: 1, Y: 2})
+	if got != `"{1 2}"` {
+		t.Errorf("Expected: \"{1 2}\", Got: %s", got)
+	}
+}
+
 func TestFormatValueStringEscape(t *testing.T) {
 	cases := []struct {
 		in       string

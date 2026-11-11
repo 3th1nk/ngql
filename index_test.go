@@ -162,3 +162,25 @@ func TestShowEdgeIndexStatus(t *testing.T) {
 		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
 	}
 }
+
+func TestCreateEdgeIndexComment(t *testing.T) {
+	nGQL := NewCreateEdgeIndex("idx_follow_degree", "follow").
+		Property("degree", 0).
+		Comment("关注度索引").
+		String()
+
+	expected := "CREATE EDGE INDEX idx_follow_degree ON follow(degree) COMMENT \"关注度索引\""
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}
+
+func TestCreateEdgeIndexEmpty(t *testing.T) {
+	nGQL := NewCreateEdgeIndex("idx_follow", "follow").
+		String()
+
+	expected := "CREATE EDGE INDEX idx_follow ON follow()"
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}

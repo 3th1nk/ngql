@@ -40,6 +40,21 @@ func TestUpdateEdge(t *testing.T) {
 	}
 }
 
+func TestUpdateEdgeFull(t *testing.T) {
+	nGQL := NewUpdateEdge("follow", "player100", "player101").
+		WithRank(1).
+		Set("degree", 96).
+		SetExpr("weight = weight + 0.1").
+		When("degree > 90").
+		Yield("follow.degree").
+		String()
+
+	expected := `UPDATE EDGE ON follow "player100" -> "player101"@1 SET degree = 96, weight = weight + 0.1 WHEN degree > 90 YIELD follow.degree`
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}
+
 func TestUpdateVertexKeywordIdentifiers(t *testing.T) {
 	// 关键字 Tag 名/属性名需自动加反引号
 	nGQL := NewUpdateVertex("order", "player100").

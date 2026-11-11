@@ -13,7 +13,7 @@ func TestCreateEdge(t *testing.T) {
 		Comment("关注关系").
 		String()
 
-	expected := "CREATE EDGE IF NOT EXISTS follow(degree int32 NOT NULL, created_at timestamp DEFAULT 0) TTL_DURATION = 100, TTL_COL = \"created_at\" COMMENT = \"关注关系\""
+	expected := "CREATE EDGE IF NOT EXISTS follow(degree int32 NOT NULL, created_at timestamp DEFAULT 0) TTL_DURATION = 100, TTL_COL = \"created_at\", COMMENT = \"关注关系\""
 	if nGQL != expected {
 		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
 	}
@@ -39,6 +39,19 @@ func TestAlterEdge(t *testing.T) {
 		String()
 
 	expected := "ALTER EDGE follow ADD (weight double), DROP (old_field), CHANGE (degree int64)"
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}
+
+func TestAlterEdgeTTLComment(t *testing.T) {
+	nGQL := NewAlterEdge("follow").
+		TTL(100, "created_at").
+		Comment("关注关系").
+		String()
+
+	// TTL 子句与 COMMENT 之间以逗号分隔
+	expected := "ALTER EDGE follow TTL_DURATION = 100, TTL_COL = \"created_at\", COMMENT = \"关注关系\""
 	if nGQL != expected {
 		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
 	}

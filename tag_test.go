@@ -13,7 +13,7 @@ func TestCreateTag(t *testing.T) {
 		Comment("玩家标签").
 		String()
 
-	expected := "CREATE TAG IF NOT EXISTS player(name string NOT NULL, age int32 DEFAULT 0) TTL_DURATION = 100, TTL_COL = \"age\" COMMENT = \"玩家标签\""
+	expected := "CREATE TAG IF NOT EXISTS player(name string NOT NULL, age int32 DEFAULT 0) TTL_DURATION = 100, TTL_COL = \"age\", COMMENT = \"玩家标签\""
 	if nGQL != expected {
 		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
 	}
@@ -39,6 +39,19 @@ func TestAlterTag(t *testing.T) {
 		String()
 
 	expected := "ALTER TAG player ADD (score int32), DROP (old_field), CHANGE (age int64)"
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}
+
+func TestAlterTagTTLComment(t *testing.T) {
+	nGQL := NewAlterTag("player").
+		TTL(100, "age").
+		Comment("球员标签").
+		String()
+
+	// TTL 子句与 COMMENT 之间以逗号分隔
+	expected := "ALTER TAG player TTL_DURATION = 100, TTL_COL = \"age\", COMMENT = \"球员标签\""
 	if nGQL != expected {
 		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
 	}

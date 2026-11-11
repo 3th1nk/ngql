@@ -69,3 +69,14 @@ func TestDeleteTagKeywordName(t *testing.T) {
 		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
 	}
 }
+
+func TestDeleteEdgeWithRank(t *testing.T) {
+	nGQL := NewDeleteEdge("serve").
+		EdgeWithRank("player100", "team204", 1).
+		String()
+
+	expected := `DELETE EDGE serve "player100" -> "team204"@1`
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}

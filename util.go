@@ -103,6 +103,20 @@ func containsUpper(s string) bool {
 	return false
 }
 
+// appendTTLAndComment 追加 TTL 配置与注释，TTL 子句与 COMMENT 之间以逗号分隔
+func appendTTLAndComment(sb *strings.Builder, ttlDuration int, ttlCol, comment string) {
+	hasTTL := ttlDuration > 0 && ttlCol != ""
+	if hasTTL {
+		sb.WriteString(fmt.Sprintf(" TTL_DURATION = %d, TTL_COL = %s", ttlDuration, quote(ttlCol)))
+	}
+	if comment != "" {
+		if hasTTL {
+			sb.WriteString(",")
+		}
+		sb.WriteString(fmt.Sprintf(" COMMENT = %s", quote(comment)))
+	}
+}
+
 // joinBackquoted 用逗号连接标识符列表，必要时加反引号
 func joinBackquoted(names []string) string {
 	strs := make([]string, 0, len(names))

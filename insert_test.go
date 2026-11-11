@@ -74,6 +74,18 @@ func TestInsertEdgeKeywordIdentifiers(t *testing.T) {
 	}
 }
 
+func TestInsertEdgeIfNotExists(t *testing.T) {
+	nGQL := NewInsertEdge("follow", "degree").
+		IfNotExists().
+		Edge("player100", "player101", 95).
+		String()
+
+	expected := `INSERT EDGE IF NOT EXISTS follow(degree) VALUES "player100" -> "player101": (95)`
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}
+
 func TestInsertVertexMultiTag(t *testing.T) {
 	// 多 Tag 同 vid：属性值按 Tag 添加顺序拼接
 	nGQL := NewInsertVertex("player", "name", "age").

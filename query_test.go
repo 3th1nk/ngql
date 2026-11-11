@@ -340,6 +340,185 @@ func TestMatchLimitZero(t *testing.T) {
 	}
 }
 
+func TestMatchSkip(t *testing.T) {
+	pattern := NewVertexPattern("v").Tag("player")
+	nGQL := NewMatch(pattern).
+		Return("v.player.name").
+		Skip(10).
+		Limit(5).
+		String()
+
+	expected := `MATCH (v:player) RETURN v.player.name SKIP 10 LIMIT 5`
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}
+
+func TestWithFieldAndSkip(t *testing.T) {
+	withClause := NewWith().
+		Field("v.player.age").
+		Skip(1).
+		Limit(2)
+
+	nGQL := NewMatch(NewVertexPattern("v").Tag("player")).
+		With(withClause).
+		Return("v.player.age").
+		String()
+
+	expected := `MATCH (v:player) WITH v.player.age SKIP 1 LIMIT 2 RETURN v.player.age`
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}
+
+func TestYieldField(t *testing.T) {
+	nGQL := NewYield().
+		Field("1+1").
+		Field("2+2").
+		String()
+
+	expected := `YIELD 1+1, 2+2`
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}
+
+func TestGoBidirect(t *testing.T) {
+	nGQL := NewGo("player100").
+		Over("follow").
+		Bidirect().
+		Yield("dst(vertex)").
+		String()
+
+	expected := `GO FROM "player100" OVER follow BIDIRECT YIELD dst(vertex)`
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}
+
+func TestGoOverAllEdges(t *testing.T) {
+	// 未指定 Over 时遍历所有边类型（OVER *）
+	nGQL := NewGo("player100").
+		Yield("dst(vertex)").
+		String()
+
+	expected := `GO FROM "player100" OVER * YIELD dst(vertex)`
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}
+
+func TestMatchOrderByAsc(t *testing.T) {
+	nGQL := NewMatch(NewVertexPattern("v").Tag("player")).
+		Return("v.player.name").
+		OrderBy("v.player.name", false).
+		String()
+
+	expected := `MATCH (v:player) RETURN v.player.name ORDER BY v.player.name ASC`
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}
+
+func TestWithOrderByAsc(t *testing.T) {
+	withClause := NewWith().
+		FieldAs("v.player.name", "name").
+		OrderBy("name", false)
+
+	nGQL := NewMatch(NewVertexPattern("v").Tag("player")).
+		With(withClause).
+		Return("name").
+		String()
+
+	expected := `MATCH (v:player) WITH v.player.name AS name ORDER BY name ASC RETURN name`
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}
+
+func TestFindPathOrderByDesc(t *testing.T) {
+	nGQL := NewFindPath(PathTypeAll).
+		From("player100").
+		To("team204").
+		Over("follow").
+		Yield("path AS p").
+		OrderBy("path", true).
+		String()
+
+	expected := `FIND ALL PATH FROM "player100" TO "team204" OVER follow YIELD path AS p | ORDER BY path DESC`
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}
+
+func TestFetchEdgeWithRank(t *testing.T) {
+	nGQL := NewFetchEdge("serve").
+		EdgeWithRank("player100", "team204", 1).
+		Yield("properties(edge)").
+		String()
+
+	expected := `FETCH PROP ON serve "player100" -> "team204"@1 YIELD properties(edge)`
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}
+
+func TestLookupSkip(t *testing.T) {
+	nGQL := NewLookup("player").
+		Yield("player.name").
+		Skip(5).
+		Limit(10).
+		String()
+
+	expected := `LOOKUP ON player YIELD player.name | SKIP 5 | LIMIT 10`
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}
+
+func TestGroupByOrderByAscSkip(t *testing.T) {
+	prevQuery := `GO FROM "player100" OVER follow YIELD $$.player.age AS age`
+	nGQL := NewGroupBy(prevQuery, "$-.age").
+		Yield("$-.age", "count(*) AS count").
+		OrderBy("count", false).
+		Skip(2).
+		String()
+
+	expected := prevQuery + ` | GROUP BY $-.age YIELD $-.age, count(*) AS count | ORDER BY count ASC | SKIP 2`
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}
+
+func TestFindPathReverselyOrderBy(t *testing.T) {
+	nGQL := NewFindPath(PathTypeAll).
+		From("player100").
+		To("team204").
+		Over("follow").
+		Reversely().
+		Yield("path AS p").
+		OrderBy("path", false).
+		String()
+
+	expected := `FIND ALL PATH FROM "player100" TO "team204" OVER follow REVERSELY YIELD path AS p | ORDER BY path ASC`
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}
+
+func TestGetSubgraphDefaultSteps(t *testing.T) {
+	// steps <= 0 时默认为 1 步，且单步不输出 STEPS
+	nGQL := NewGetSubgraph(0).
+		From("player100").
+		Yield("VERTICES AS nodes").
+		String()
+
+	expected := `GET SUBGRAPH FROM "player100" YIELD VERTICES AS nodes`
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}
+
 func TestPathTypeConstants(t *testing.T) {
 	// pathType 常量与字符串字面量等价
 	cases := []struct {
