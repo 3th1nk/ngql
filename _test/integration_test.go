@@ -2,6 +2,9 @@ package _test
 
 import (
 	"fmt"
+	"os"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -9,37 +12,200 @@ import (
 	nebula "github.com/vesoft-inc/nebula-go/v3"
 )
 
-const (
-	host      = "127.0.0.1"
-	port      = 9669
-	username  = "root"
-	password  = "nebula"
-	testSpace = "test_space"
+// 连接参数支持环境变量覆盖（CI 中 graphd 运行在 dind 容器内，通过服务名访问）
+var (
+	host         = envOr("NEBULA_HOST", "127.0.0.1")
+	port         = envIntOr("NEBULA_PORT", 9669)
+	storageHost  = envOr("NEBULA_STORAGE_HOST", "storaged")
+	storagePort  = envIntOr("NEBULA_STORAGE_PORT", 9779)
+	defaultSpace = envOr("NEBULA_DEFAULT_SPACE", "default_space")
+	username     = envOr("NEBULA_USERNAME", "root")
+	password     = envOr("NEBULA_PASSWORD", "nebula")
+	testSpace    = "test_space"
 )
 
 var (
 	sessionPool *nebula.SessionPool
 )
 
-// TestMain 测试主函数，初始化 SessionPool
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+func envIntOr(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return def
+}
+
+// TestMain 测试主函数：自动初始化集群（幂等）后创建 SessionPool
 func TestMain(m *testing.M) {
+	if err := initCluster(); err != nil {
+		fmt.Println("集群初始化失败: ", err)
+		os.Exit(1)
+	}
+
 	poolConf, err := nebula.NewSessionPoolConf(
 		username, password,
 		[]nebula.HostAddress{
 			{Host: host, Port: port},
 		},
-		"default_space", // 需要先手动创建图空间
+		defaultSpace,
 	)
 	if err != nil {
 		fmt.Println("创建 SessionPoolConf 失败: ", err)
-		return
+		os.Exit(1)
 	}
-	sessionPool, err = nebula.NewSessionPool(*poolConf, nebula.DefaultLogger{})
+	// default_space 的分区 leader 就绪前 USE 可能失败，重试等待
+	for i := 0; i < 15; i++ {
+		sessionPool, err = nebula.NewSessionPool(*poolConf, nebula.DefaultLogger{})
+		if err == nil {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
 	if err != nil {
 		fmt.Println("创建 SessionPool 失败: ", err)
-		return
+		os.Exit(1)
 	}
-	m.Run()
+	code := m.Run()
+	sessionPool.Close()
+	os.Exit(code)
+}
+
+// initCluster 初始化集群（幂等）：注册存储节点、确保 default_space 存在
+func initCluster() error {
+	// 等待 graphd 就绪后建立连接
+	var pool *nebula.ConnectionPool
+	var session *nebula.Session
+	var err error
+	for i := 0; i < 30; i++ {
+		pool, err = nebula.NewConnectionPool(
+			[]nebula.HostAddress{{Host: host, Port: port}},
+			nebula.GetDefaultConf(),
+			nebula.DefaultLogger{},
+		)
+		if err == nil {
+			session, err = pool.GetSession(username, password)
+			if err == nil {
+				break
+			}
+			pool.Close()
+		}
+		time.Sleep(2 * time.Second)
+	}
+	if err != nil {
+		return fmt.Errorf("连接 graphd %s:%d 失败: %w", host, port, err)
+	}
+	defer pool.Close()
+	defer session.Release()
+
+	exec := func(stmt string) error {
+		rs, err := session.Execute(stmt)
+		if err != nil {
+			return err
+		}
+		if !rs.IsSucceed() {
+			return fmt.Errorf("%s 执行失败: %s", stmt, rs.GetErrorMsg())
+		}
+		return nil
+	}
+
+	// 注册存储节点（重复注册会报错，忽略即可）
+	if err := exec(fmt.Sprintf(`ADD HOSTS "%s":%d`, storageHost, storagePort)); err != nil {
+		fmt.Printf("ADD HOSTS（已注册则忽略）: %v\n", err)
+	}
+
+	// 等待存储节点被 meta 心跳感知（ONLINE）：未感知时创建图空间会报 Host not enough
+	registered := false
+	for i := 0; i < 30; i++ {
+		rs, err := session.Execute("SHOW HOSTS")
+		if err == nil && rs.IsSucceed() {
+			for _, row := range rs.AsStringTable() {
+				joined := strings.Join(row, " ")
+				if strings.Contains(joined, storageHost) && strings.Contains(joined, "ONLINE") {
+					registered = true
+					break
+				}
+			}
+		}
+		if registered {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	if !registered {
+		return fmt.Errorf("等待存储节点 %s:%d 注册超时", storageHost, storagePort)
+	}
+
+	// 创建 default_space（冷启动时存储节点心跳未活跃会暂时报 Host not enough，重试等待）
+	var createErr error
+	for i := 0; i < 30; i++ {
+		if err := exec(fmt.Sprintf("CREATE SPACE IF NOT EXISTS %s(vid_type=FIXED_STRING(32))", defaultSpace)); err == nil {
+			createErr = nil
+			break
+		} else {
+			createErr = err
+		}
+		time.Sleep(time.Second)
+	}
+	if createErr != nil {
+		return createErr
+	}
+
+	// 等待 default_space 的分区分配完成（分区分配依赖空间创建，需在 CREATE 之后等待）
+	spaceReady := false
+	for i := 0; i < 30; i++ {
+		rs, err := session.Execute("SHOW HOSTS")
+		if err == nil && rs.IsSucceed() {
+			for _, row := range rs.AsStringTable() {
+				if strings.Contains(strings.Join(row, " "), defaultSpace) {
+					spaceReady = true
+					break
+				}
+			}
+		}
+		if spaceReady {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	if !spaceReady {
+		return fmt.Errorf("等待 %s 分区分配超时", defaultSpace)
+	}
+	return probeStorage(session)
+}
+
+// probeStorage 写入探针：真实验证 graphd schema 缓存与 storage RPC 写入链路就绪
+// 冷启动后首次 DML 可能报 RPC timeout，就绪后其余语句不再受影响；探针数据自动清理
+func probeStorage(session *nebula.Session) error {
+	execOK := func(stmt string) bool {
+		rs, err := session.Execute(stmt)
+		return err == nil && rs.IsSucceed()
+	}
+	// 创建探针 Tag
+	for i := 0; i < 15; i++ {
+		if execOK(fmt.Sprintf("USE %s; CREATE TAG IF NOT EXISTS probe_tag(c int)", defaultSpace)) {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	// 轮询写入直到 storage RPC 就绪
+	for i := 0; i < 30; i++ {
+		if execOK(fmt.Sprintf(`USE %s; INSERT VERTEX probe_tag(c) VALUES "probe_tag":(1)`, defaultSpace)) {
+			execOK(fmt.Sprintf(`USE %s; DELETE VERTEX "probe_tag"`, defaultSpace))
+			execOK(fmt.Sprintf("USE %s; DROP TAG probe_tag", defaultSpace))
+			return nil
+		}
+		time.Sleep(time.Second)
+	}
+	return fmt.Errorf("存储写入链路探测超时")
 }
 
 // executeNGQL 执行 nGQL 语句并返回结果
@@ -125,6 +291,18 @@ func rebuildTagIndexWithRetry(t *testing.T, indexName string) {
 	t.Fatalf("重建索引 %s 超时", indexName)
 }
 
+// createTestSpaceWithRetry 创建测试图空间，冷启动时 meta 心跳未活跃会暂时报 Host not enough
+func createTestSpaceWithRetry(t *testing.T, stmt string) {
+	for i := 0; i < 30; i++ {
+		result, err := sessionPool.Execute(stmt)
+		if err == nil && result.IsSucceed() {
+			return
+		}
+		time.Sleep(time.Second)
+	}
+	t.Fatalf("创建测试图空间超时: %s", stmt)
+}
+
 // TestIntegration_FullWorkflow 完整的集成测试工作流
 func TestIntegration_FullWorkflow(t *testing.T) {
 	// 清理可能存在的测试图空间
@@ -144,7 +322,7 @@ func TestIntegration_FullWorkflow(t *testing.T) {
 		Comment("集成测试图空间").
 		String()
 	t.Logf("执行: %s", createSpaceNGQL)
-	executeGlobalNGQL(t, createSpaceNGQL)
+	createTestSpaceWithRetry(t, createSpaceNGQL)
 	time.Sleep(10 * time.Second) // 等待图空间创建完成（NebulaGraph 异步创建）
 
 	// 2. 创建 Tag
@@ -348,7 +526,7 @@ func TestIntegration_IndexOperations(t *testing.T) {
 		ReplicaFactor(1).
 		VidTypeFixedString(32).
 		String()
-	executeGlobalNGQL(t, createSpaceNGQL)
+	createTestSpaceWithRetry(t, createSpaceNGQL)
 	time.Sleep(10 * time.Second)
 
 	// 创建 player Tag

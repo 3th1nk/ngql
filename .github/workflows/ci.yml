@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  lint:
+    name: Lint (gofmt + vet)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+      - name: gofmt 格式检查
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "以下文件未格式化:"
+            echo "$out"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+
+  unit-test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+      - name: 运行单元测试
+        run: go test ./... -coverprofile=coverage.out -covermode=atomic
+      - name: 覆盖率统计
+        run: go tool cover -func=coverage.out | tail -1
+
+  integration-test:
+    name: Integration Tests (NebulaGraph v3.8.0)
+    runs-on: ubuntu-latest
+    # 通过 docker-in-docker 启动 _test/docker-compose.yml 集群，
+    # 测试的 TestMain 会自动完成集群初始化（ADD HOSTS / 建空间 / 就绪探测）
+    services:
+      docker:
+        image: docker:27-dind
+        options: --privileged
+    env:
+      DOCKER_HOST: tcp://docker:2376
+      DOCKER_TLS_CERTDIR: /certs
+      # dind 内的 graphd 端口映射通过 docker 服务主机名访问
+      NEBULA_HOST: docker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+      - name: 启动 NebulaGraph 集群
+        run: docker compose -f _test/docker-compose.yml up -d
+      - name: 运行集成测试
+        run: go test ./_test -v -count=1 -timeout 15m

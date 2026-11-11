@@ -54,19 +54,14 @@
 
 1. **NebulaGraph 服务运行中**（默认连接 127.0.0.1:9669，用户名 root，密码 nebula）
 
-2. **集群初始化**：SessionPool 连接的是 `default_space`，需预先创建：
+2. **集群初始化由 TestMain 自动完成**（幂等）：注册存储节点、创建 `default_space`、
+   等待分区分配、写入探针验证链路就绪——无需手动执行任何语句
 
-```ngql
-ADD HOSTS "storaged":9779;
-CREATE SPACE IF NOT EXISTS default_space(vid_type=FIXED_STRING(32));
-```
-
-3. **本地容器快速搭建**（NebulaGraph v3.8.0，单机）：
+3. **本地容器快速搭建**（NebulaGraph v3.8.0 单机，`heartbeat_interval_secs=1` 加速 schema 传播）：
 
 ```bash
-# metad/graphd/storaged 三容器，建议 heartbeat_interval_secs=1 加速 schema 传播
-docker compose up -d
-# 等待 graphd 9669 端口就绪后，通过 console 执行上面的初始化语句
+docker compose -f _test/docker-compose.yml up -d
+# 等待 9669 端口就绪后直接运行测试
 ```
 
 ### 运行所有集成测试
@@ -76,6 +71,16 @@ go test ./_test -v -count=1
 ```
 
 > 注意：`_test` 目录以下划线开头，Go 工具在 `./...` 模式下会忽略它，需显式指定路径运行。
+
+### 连接参数（环境变量覆盖）
+
+| 环境变量 | 默认值 | 说明 |
+|---------|--------|------|
+| `NEBULA_HOST` | `127.0.0.1` | graphd 地址 |
+| `NEBULA_PORT` | `9669` | graphd 端口 |
+| `NEBULA_STORAGE_HOST` | `storaged` | 存储节点地址（ADD HOSTS 用） |
+| `NEBULA_STORAGE_PORT` | `9779` | 存储节点端口 |
+| `NEBULA_USERNAME` / `NEBULA_PASSWORD` | `root` / `nebula` | 认证信息 |
 
 ### 运行特定测试
 
@@ -127,6 +132,8 @@ PASS
 2. **schema 分发存在心跳延迟**
    - CREATE TAG/EDGE 返回成功后，DML 可能短暂报 NotFound（graphd 本地 schema 缓存按心跳周期刷新）
    - 测试内置 `waitForSchema`（轮询 DESCRIBE）与 `rebuildTagIndexWithRetry`（轮询重建）处理
+   - 冷启动场景由 TestMain 的集群初始化与写入探针（`probeStorage`）兜底，
+     CREATE SPACE 报 `Host not enough` 等瞬时错误均以重试消化
    - 容器环境建议 `heartbeat_interval_secs=1` 加速 schema 传播
 
 3. **测试图空间**
