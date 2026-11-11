@@ -60,17 +60,17 @@
 3. **本地容器快速搭建**（NebulaGraph v3.8.0 单机，`heartbeat_interval_secs=1` 加速 schema 传播）：
 
 ```bash
-docker compose -f _test/docker-compose.yml up -d
+docker compose -f integration/docker-compose.yml up -d
 # 等待 9669 端口就绪后直接运行测试
 ```
 
 ### 运行所有集成测试
 
 ```bash
-go test ./_test -v -count=1
+go test -tags=integration ./integration -v -count=1
 ```
 
-> 注意：`_test` 目录以下划线开头，Go 工具在 `./...` 模式下会忽略它，需显式指定路径运行。
+> 注意：集成测试通过 `integration` build tag 隔离，需显式传入 `-tags=integration` 运行。
 
 ### 连接参数（环境变量覆盖）
 
@@ -86,10 +86,10 @@ go test ./_test -v -count=1
 
 ```bash
 # 运行完整工作流测试
-go test ./_test -v -run TestIntegration_FullWorkflow
+go test -tags=integration ./integration -v -run TestIntegration_FullWorkflow
 
 # 运行索引操作测试
-go test ./_test -v -run TestIntegration_IndexOperations
+go test -tags=integration ./integration -v -run TestIntegration_IndexOperations
 ```
 
 ### 运行特定测试

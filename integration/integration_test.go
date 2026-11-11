@@ -1,4 +1,8 @@
-package _test
+//go:build integration
+
+// 集成测试：需连接真实 NebulaGraph 实例运行（见 README.md），
+// 通过 build tag 与单元测试隔离，保证 go mod tidy / go test ./... 不会误触
+package integration_test
 
 import (
 	"fmt"

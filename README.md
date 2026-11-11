@@ -53,8 +53,8 @@
 
 ```
 ├── docs/            # 专题文档（图模式语法、变量引用指南）
-├── internal/        # 内部包（nGQL 关键字表，不对外暴露）
-└── _test/           # 集成测试（Go 工具忽略下划线目录，需显式运行，见 _test/README.md）
+├── integration/     # 集成测试（build tag 隔离，需连接真实实例，见 integration/README.md）
+└── internal/        # 内部包（nGQL 关键字表，不对外暴露）
 ```
 
 ## 功能特性

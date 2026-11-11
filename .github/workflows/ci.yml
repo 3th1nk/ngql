@@ -55,4 +55,4 @@ jobs:
         run: docker compose -f _test/docker-compose.yml up -d
       - name: 运行集成测试
         # graphd 端口映射至 runner 本机，NEBULA_HOST 使用默认 127.0.0.1
-        run: go test ./_test -v -count=1 -timeout 15m
+        run: go test -tags=integration ./integration -v -count=1 -timeout 15m
