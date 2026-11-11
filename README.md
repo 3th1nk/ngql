@@ -1,5 +1,10 @@
 # NebulaGraph nGQL 构建器使用指南
 
+[![CI](https://github.com/3th1nk/ngql/actions/workflows/ci.yml/badge.svg)](https://github.com/3th1nk/ngql/actions/workflows/ci.yml)
+[![Go Version](https://img.shields.io/badge/Go-1.18%2B-00ADD8?logo=go)](https://go.dev)
+[![Coverage](https://img.shields.io/badge/Coverage-100%25-brightgreen)](https://github.com/3th1nk/ngql/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 ## 概述
 
 本包提供了一套完整的 nGQL 语句构建器，支持链式调用，方便业务层构建各种图数据库操作语句。
@@ -1468,3 +1473,7 @@ for _, player := range players {
 - [NebulaGraph 官方文档](https://docs.nebula-graph.com.cn/)
 - [NebulaGraph nGQL 指南](https://docs.nebula-graph.com.cn/3.8.0/3.ngql-guide/1.nGQL-overview/ngql-style-guide)
 - [NebulaGraph Go 客户端](https://github.com/vesoft-inc/nebula-go)
+
+## License
+
+本项目基于 [MIT](LICENSE) 协议开源。
