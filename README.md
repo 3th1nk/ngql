@@ -39,6 +39,14 @@
 └── README.md        # 使用文档
 ```
 
+其他目录：
+
+```
+├── docs/            # 专题文档（图模式语法、变量引用指南）
+├── internal/        # 内部包（nGQL 关键字表，不对外暴露）
+└── _test/           # 集成测试（Go 工具忽略下划线目录，需显式运行，见 _test/README.md）
+```
+
 ## 功能特性
 
 - ✅ **链式调用** - 代码简洁易读
@@ -243,7 +251,7 @@ import "github.com/3th1nk/ngql"
 nGQL := ngql.NewCreateSpace("my_space").
     PartitionNum(10).
     ReplicaFactor(3).
-    VidType("FIXED_STRING(32)").
+    VidTypeFixedString(32).
     Comment("我的图空间").
     String()
 
@@ -1114,11 +1122,14 @@ for _, player := range players {
 
 ## 注意事项
 
-1. **值转义**：构建器会自动处理字符串值的转义，无需手动处理
-2. **VID 格式**：顶点 ID 会自动添加引号，传入时使用原始字符串即可
-3. **属性名称**：属性名称需要包含标签前缀，如 `player.name`
-4. **表达式**：使用 `SetExpr` 时，表达式不会被转义，可以使用 nGQL 函数和运算符
-5. **性能考虑**：批量操作时，尽量使用单个语句插入多条数据，而不是多次调用
+1. **值转义**：构建器会自动处理字符串值的转义（反斜杠与双引号），无需手动处理
+2. **VID 格式**：顶点 ID 会自动添加引号并转义，传入时使用原始字符串即可
+3. **标识符保护**：Tag/Edge/属性名等标识符自动加反引号——保留关键字（无论大小写）、含大写字母的非保留关键字（避免被系统转为全小写）、中文及特殊字符命名均会被保护，普通名称原样输出
+4. **属性顺序**：Pattern 属性过滤与 UPSERT 的 SET 按调用顺序输出，同名属性后设置覆盖先设置
+5. **条件累积**：`Where`/`When` 多次调用以 AND 连接（GO、FIND PATH、UPDATE、UPSERT、MATCH 等全部一致）
+6. **属性名称**：属性名称需要包含标签前缀，如 `player.name`
+7. **表达式**：`SetExpr` 传入的表达式与 `Where` 条件不会被转义，可以使用 nGQL 函数和运算符
+8. **性能考虑**：批量操作时，尽量使用单个语句插入多条数据，而不是多次调用
 
 ## API 参考
 
@@ -1159,7 +1170,8 @@ for _, player := range players {
 | | IfNotExists() | 设置 IF NOT EXISTS 选项 |
 | | PartitionNum(num) | 设置分区数 |
 | | ReplicaFactor(num) | 设置副本数 |
-| | VidType(vidType) | 设置 VID 类型 |
+| | VidTypeInt64() | 设置 VID 类型为 INT64 |
+| | VidTypeFixedString(length) | 设置 VID 类型为 FIXED_STRING(length) |
 | | Comment(comment) | 设置注释 |
 | | String() | 生成 nGQL 语句 |
 | CreateSpaceAsBuilder | NewCreateSpaceAs(newSpace, oldSpace) | 创建克隆图空间构建器 |
