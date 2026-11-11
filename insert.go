@@ -7,10 +7,16 @@ import (
 
 // ============ 插入顶点 ============
 
+// insertVertexTag 插入顶点的 Tag 定义
+type insertVertexTag struct {
+	tag   string
+	props []string
+}
+
 // InsertVertexBuilder 插入顶点构建器
+// 支持单 Tag 与多 Tag（同一 vid 同时挂多个 Tag）
 type InsertVertexBuilder struct {
-	tag        string
-	props      []string
+	tags       []insertVertexTag
 	values     []VertexValue
 	ifNotExist bool
 }
@@ -25,11 +31,20 @@ type VertexValue struct {
 // tag: 顶点标签名称
 // props: 属性名称列表
 func NewInsertVertex(tag string, props ...string) *InsertVertexBuilder {
-	return &InsertVertexBuilder{
-		tag:    tag,
-		props:  props,
+	b := &InsertVertexBuilder{
 		values: make([]VertexValue, 0),
 	}
+	return b.AddTag(tag, props...)
+}
+
+// AddTag 添加 Tag 定义（多 Tag 插入：同一 vid 同时挂多个 Tag）
+// 多 Tag 时 Values 的属性值需按各 Tag 的属性顺序依次拼接
+// 示例：
+//	NewInsertVertex("t1", "a").AddTag("t2", "b").Values("v1", 1, 2)
+//	-> INSERT VERTEX t1(a), t2(b) VALUES "v1": (1, 2)
+func (b *InsertVertexBuilder) AddTag(tag string, props ...string) *InsertVertexBuilder {
+	b.tags = append(b.tags, insertVertexTag{tag: tag, props: props})
+	return b
 }
 
 // IfNotExists 设置 IF NOT EXISTS 选项
@@ -58,10 +73,13 @@ func (b *InsertVertexBuilder) String() string {
 		sb.WriteString("IF NOT EXISTS ")
 	}
 
-	sb.WriteString(b.tag)
-	sb.WriteString("(")
-	sb.WriteString(strings.Join(b.props, ", "))
-	sb.WriteString(") VALUES ")
+	// Tag 列表（支持多 Tag）
+	tagStrs := make([]string, 0, len(b.tags))
+	for _, t := range b.tags {
+		tagStrs = append(tagStrs, fmt.Sprintf("%s(%s)", backquoteIfNeed(t.tag), joinBackquoted(t.props)))
+	}
+	sb.WriteString(strings.Join(tagStrs, ", "))
+	sb.WriteString(" VALUES ")
 
 	valueStrs := make([]string, 0, len(b.values))
 	for _, v := range b.values {
@@ -148,9 +166,9 @@ func (b *InsertEdgeBuilder) String() string {
 		sb.WriteString("IF NOT EXISTS ")
 	}
 
-	sb.WriteString(b.edgeType)
+	sb.WriteString(backquoteIfNeed(b.edgeType))
 	sb.WriteString("(")
-	sb.WriteString(strings.Join(b.props, ", "))
+	sb.WriteString(joinBackquoted(b.props))
 	sb.WriteString(") VALUES ")
 
 	edgeStrs := make([]string, 0, len(b.edges))

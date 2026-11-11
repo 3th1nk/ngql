@@ -54,3 +54,54 @@ func TestUpsertEdgeWithRank(t *testing.T) {
 		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
 	}
 }
+
+func TestUpsertVertexSetOrderPreserved(t *testing.T) {
+	// 多次 Set 按调用顺序输出
+	nGQL := NewUpsertVertex("player", "player100").
+		Set("b", 2).
+		Set("a", 1).
+		String()
+
+	expected := `UPSERT VERTEX ON player "player100" SET b = 2, a = 1`
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}
+
+func TestUpsertVertexSetOverwrite(t *testing.T) {
+	// 同名属性后设置覆盖先设置
+	nGQL := NewUpsertVertex("player", "player100").
+		Set("age", 30).
+		Set("age", 42).
+		String()
+
+	expected := `UPSERT VERTEX ON player "player100" SET age = 42`
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}
+
+func TestUpsertVertexWhenAccumulates(t *testing.T) {
+	nGQL := NewUpsertVertex("player", "player100").
+		Set("age", 42).
+		When("age > 30").
+		When("age < 50").
+		String()
+
+	expected := `UPSERT VERTEX ON player "player100" SET age = 42 WHEN age > 30 AND age < 50`
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}
+
+func TestUpsertEdgeKeywordIdentifiers(t *testing.T) {
+	// 关键字标识符需自动加反引号
+	nGQL := NewUpsertEdge("order", "player100", "player101").
+		Set("from", "a").
+		String()
+
+	expected := "UPSERT EDGE ON `order` \"player100\" -> \"player101\" SET `from` = \"a\""
+	if nGQL != expected {
+		t.Errorf("Expected: %s\nGot: %s", expected, nGQL)
+	}
+}

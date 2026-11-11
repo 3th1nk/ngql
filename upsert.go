@@ -11,9 +11,9 @@ import (
 type UpsertVertexBuilder struct {
 	tag         string
 	vid         string
-	setProps    map[string]interface{}
+	setProps    kvPairs // 属性赋值，按调用顺序输出，同名属性后设置覆盖先设置
 	setExprs    []string
-	whenCond    string
+	whenConds   []string
 	yieldFields []string
 }
 
@@ -24,15 +24,16 @@ func NewUpsertVertex(tag, vid string) *UpsertVertexBuilder {
 	return &UpsertVertexBuilder{
 		tag:         tag,
 		vid:         vid,
-		setProps:    make(map[string]interface{}),
+		setProps:    make(kvPairs, 0),
 		setExprs:    make([]string, 0),
+		whenConds:   make([]string, 0),
 		yieldFields: make([]string, 0),
 	}
 }
 
-// Set 设置属性值
+// Set 设置属性值，同名属性后设置覆盖先设置
 func (b *UpsertVertexBuilder) Set(prop string, value interface{}) *UpsertVertexBuilder {
-	b.setProps[prop] = value
+	b.setProps.set(prop, value)
 	return b
 }
 
@@ -42,9 +43,9 @@ func (b *UpsertVertexBuilder) SetExpr(expr string) *UpsertVertexBuilder {
 	return b
 }
 
-// When 添加条件
+// When 添加条件，多次调用以 AND 连接
 func (b *UpsertVertexBuilder) When(condition string) *UpsertVertexBuilder {
-	b.whenCond = condition
+	b.whenConds = append(b.whenConds, condition)
 	return b
 }
 
@@ -58,18 +59,18 @@ func (b *UpsertVertexBuilder) Yield(fields ...string) *UpsertVertexBuilder {
 func (b *UpsertVertexBuilder) String() string {
 	var sb strings.Builder
 	sb.WriteString("UPSERT VERTEX ON ")
-	sb.WriteString(b.tag)
+	sb.WriteString(backquoteIfNeed(b.tag))
 	sb.WriteString(" ")
 	sb.WriteString(quote(b.vid))
 
 	// SET 子句
 	if len(b.setProps) > 0 || len(b.setExprs) > 0 {
 		sb.WriteString(" SET ")
-		setParts := make([]string, 0)
+		setParts := make([]string, 0, len(b.setProps)+len(b.setExprs))
 
 		// 添加属性赋值
-		for prop, value := range b.setProps {
-			setParts = append(setParts, fmt.Sprintf("%s = %s", prop, formatValue(value)))
+		for _, kv := range b.setProps {
+			setParts = append(setParts, fmt.Sprintf("%s = %s", backquoteIfNeed(kv.key), formatValue(kv.value)))
 		}
 
 		// 添加表达式
@@ -79,9 +80,9 @@ func (b *UpsertVertexBuilder) String() string {
 	}
 
 	// WHEN 子句
-	if b.whenCond != "" {
+	if len(b.whenConds) > 0 {
 		sb.WriteString(" WHEN ")
-		sb.WriteString(b.whenCond)
+		sb.WriteString(strings.Join(b.whenConds, " AND "))
 	}
 
 	// YIELD 子句
@@ -101,9 +102,9 @@ type UpsertEdgeBuilder struct {
 	srcVid      string
 	dstVid      string
 	rank        *int64
-	setProps    map[string]interface{}
+	setProps    kvPairs // 属性赋值，按调用顺序输出，同名属性后设置覆盖先设置
 	setExprs    []string
-	whenCond    string
+	whenConds   []string
 	yieldFields []string
 }
 
@@ -116,8 +117,9 @@ func NewUpsertEdge(edgeType, srcVid, dstVid string) *UpsertEdgeBuilder {
 		edgeType:    edgeType,
 		srcVid:      srcVid,
 		dstVid:      dstVid,
-		setProps:    make(map[string]interface{}),
+		setProps:    make(kvPairs, 0),
 		setExprs:    make([]string, 0),
+		whenConds:   make([]string, 0),
 		yieldFields: make([]string, 0),
 	}
 }
@@ -128,9 +130,9 @@ func (b *UpsertEdgeBuilder) WithRank(rank int64) *UpsertEdgeBuilder {
 	return b
 }
 
-// Set 设置属性值
+// Set 设置属性值，同名属性后设置覆盖先设置
 func (b *UpsertEdgeBuilder) Set(prop string, value interface{}) *UpsertEdgeBuilder {
-	b.setProps[prop] = value
+	b.setProps.set(prop, value)
 	return b
 }
 
@@ -140,9 +142,9 @@ func (b *UpsertEdgeBuilder) SetExpr(expr string) *UpsertEdgeBuilder {
 	return b
 }
 
-// When 添加条件
+// When 添加条件，多次调用以 AND 连接
 func (b *UpsertEdgeBuilder) When(condition string) *UpsertEdgeBuilder {
-	b.whenCond = condition
+	b.whenConds = append(b.whenConds, condition)
 	return b
 }
 
@@ -156,7 +158,7 @@ func (b *UpsertEdgeBuilder) Yield(fields ...string) *UpsertEdgeBuilder {
 func (b *UpsertEdgeBuilder) String() string {
 	var sb strings.Builder
 	sb.WriteString("UPSERT EDGE ON ")
-	sb.WriteString(b.edgeType)
+	sb.WriteString(backquoteIfNeed(b.edgeType))
 	sb.WriteString(fmt.Sprintf(" %s -> %s", quote(b.srcVid), quote(b.dstVid)))
 
 	// Rank
@@ -167,11 +169,11 @@ func (b *UpsertEdgeBuilder) String() string {
 	// SET 子句
 	if len(b.setProps) > 0 || len(b.setExprs) > 0 {
 		sb.WriteString(" SET ")
-		setParts := make([]string, 0)
+		setParts := make([]string, 0, len(b.setProps)+len(b.setExprs))
 
 		// 添加属性赋值
-		for prop, value := range b.setProps {
-			setParts = append(setParts, fmt.Sprintf("%s = %s", prop, formatValue(value)))
+		for _, kv := range b.setProps {
+			setParts = append(setParts, fmt.Sprintf("%s = %s", backquoteIfNeed(kv.key), formatValue(kv.value)))
 		}
 
 		// 添加表达式
@@ -181,9 +183,9 @@ func (b *UpsertEdgeBuilder) String() string {
 	}
 
 	// WHEN 子句
-	if b.whenCond != "" {
+	if len(b.whenConds) > 0 {
 		sb.WriteString(" WHEN ")
-		sb.WriteString(b.whenCond)
+		sb.WriteString(strings.Join(b.whenConds, " AND "))
 	}
 
 	// YIELD 子句

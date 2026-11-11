@@ -40,9 +40,11 @@
 - ✅ **链式调用** - 代码简洁易读
 - ✅ **类型安全** - 减少拼写错误
 - ✅ **图模式构建器** - 提供 VertexPattern、EdgePattern、PathPattern 用于类型安全的图模式构建
+- ✅ **Cypher 风格子句** - MATCH 支持 OPTIONAL MATCH、WITH、UNWIND、RETURN DISTINCT
 - ✅ **自动转义** - 自动处理值转义和格式化，防止注入
 - ✅ **模块化设计** - 每个文件职责单一，易于维护和扩展
-- ✅ **完整测试** - 测试覆盖率 78%+
+- ✅ **完整测试** - 测试覆盖率 92%+
+- ✅ **标识符保护** - 关键字、特殊字符标识符自动加反引号；值与 VID 自动转义，防注入
 
 ## 设计原则
 
@@ -271,12 +273,12 @@ nGQL := ngql.NewCreateTag("player").
     IfNotExists().
     AddProperty(&ngql.Property{
         Name:     "name",
-        Type:     "string",
+        Type:     ngql.PropertyTypeString,
         Nullable: false,
     }).
     AddProperty(&ngql.Property{
         Name:     "age",
-        Type:     "int",
+        Type:     ngql.PropertyTypeInt64,
         Nullable: true,
         Default:  0,
     }).
@@ -286,15 +288,15 @@ nGQL := ngql.NewCreateTag("player").
 
 // 简化方式创建 Tag
 nGQL := ngql.NewCreateTag("team").
-    Property("name", "string").
-    Property("city", "string").
+    Property("name", ngql.PropertyTypeString).
+    Property("city", ngql.PropertyTypeString).
     String()
 
 // 修改 Tag
 nGQL := ngql.NewAlterTag("player").
-    Add(&ngql.Property{Name: "score", Type: "int", Nullable: true}).
+    Add(&ngql.Property{Name: "score", Type: ngql.PropertyTypeInt64, Nullable: true}).
     Drop("old_field").
-    Change(&ngql.Property{Name: "age", Type: "bigint", Nullable: true}).
+    Change(&ngql.Property{Name: "age", Type: ngql.PropertyTypeInt64, Nullable: true}).
     String()
 
 // 删除 Tag
@@ -323,12 +325,12 @@ nGQL := ngql.NewCreateEdge("follow").
     IfNotExists().
     AddProperty(&ngql.Property{
         Name:     "degree",
-        Type:     "int",
+        Type:     ngql.PropertyTypeInt64,
         Nullable: false,
     }).
     AddProperty(&ngql.Property{
         Name:     "created_at",
-        Type:     "timestamp",
+        Type:     ngql.PropertyTypeTimestamp,
         Nullable: true,
         Default:  0,
     }).
@@ -344,9 +346,9 @@ nGQL := ngql.NewCreateEdge("serve").
 
 // 修改 Edge 类型
 nGQL := ngql.NewAlterEdge("follow").
-    Add(&ngql.Property{Name: "weight", Type: "double", Nullable: true}).
+    Add(&ngql.Property{Name: "weight", Type: ngql.PropertyTypeDouble, Nullable: true}).
     Drop("old_field").
-    Change(&ngql.Property{Name: "degree", Type: "bigint", Nullable: true}).
+    Change(&ngql.Property{Name: "degree", Type: ngql.PropertyTypeInt64, Nullable: true}).
     String()
 
 // 删除 Edge 类型
@@ -489,6 +491,13 @@ nGQL := ngql.NewInsertVertex("player", "name", "age").
     IfNotExists().
     Values("player100", "Tim Duncan", 42).
     String()
+
+// 多 Tag 插入（同一 vid 同时挂多个 Tag）
+// 注意：属性值需按各 Tag 的属性顺序依次拼接
+nGQL := ngql.NewInsertVertex("player", "name", "age").
+    AddTag("person", "idcard").
+    Values("player100", "Tim Duncan", 42, "123456").
+    String()
 ```
 
 ### 7. 插入边
@@ -573,6 +582,39 @@ pattern := ngql.NewPathPattern().
 nGQL := ngql.NewMatch(pattern).
     Return("v1.player.name", "v2.player.name").
     String()
+
+// OPTIONAL MATCH - 模式无匹配时不丢弃整行，对应字段以 NULL 填充
+pattern := ngql.NewVertexPattern("v").Tag("player")
+nGQL := ngql.NewOptionalMatch(pattern).
+    Where("v.player.age > 30").
+    Return("v.player.name").
+    String()
+
+// RETURN DISTINCT - 去重
+pattern := ngql.NewVertexPattern("v").Tag("player")
+nGQL := ngql.NewMatch(pattern).
+    ReturnDistinct("v.player.name").
+    String()
+
+// WITH 子句 - 中间投影与范围过滤（可携带自身 WHERE/ORDER BY/LIMIT）
+pattern := ngql.NewVertexPattern("v").Tag("player")
+nGQL := ngql.NewMatch(pattern).
+    Where("v.player.age > 30").
+    With(ngql.NewWith().
+        FieldAs("v.player.name", "name").
+        Where("name != \"Tim\"").
+        OrderBy("name", true).
+        Limit(5)).
+    Return("name").
+    String()
+
+// WITH + UNWIND - 收集聚合后展开
+pattern := ngql.NewVertexPattern("v").Tag("player")
+nGQL := ngql.NewMatch(pattern).
+    With(ngql.NewWith().FieldAs("collect(v.player.name)", "names")).
+    Unwind("names", "name").
+    Return("name").
+    String()
 ```
 
 ### 9. GO 查询（图遍历）
@@ -588,6 +630,13 @@ nGQL := ngql.NewGo("player100").
 nGQL := ngql.NewGo("player100").
     Over("follow").
     Steps(2).
+    Yield("$$.player.name").
+    String()
+
+// 变长步数遍历（M TO N STEPS）
+nGQL := ngql.NewGo("player100").
+    Over("follow").
+    StepsRange(1, 3).
     Yield("$$.player.name").
     String()
 
@@ -717,7 +766,36 @@ nGQL := ngql.NewDeleteEdge("serve").
     String()
 ```
 
-### 14. FETCH 查询（获取属性）
+### 14. 删除 Tag（移除顶点上指定的 Tag）
+
+```go
+// 删除单个顶点上的指定 Tag
+nGQL := ngql.NewDeleteTag("player", "player100").
+    String()
+
+// 删除多个顶点上的指定 Tag
+nGQL := ngql.NewDeleteTag("player", "player100", "player101").
+    String()
+```
+
+### 15. YIELD 独立语句（表达式计算）
+
+```go
+// 独立计算表达式
+nGQL := ngql.NewYield().
+    FieldAs("1+1", "x").
+    FieldAs("\"a\" == \"a\"", "eq").
+    Field("count(*)").
+    String()
+
+// 去重
+nGQL := ngql.NewYield().
+    Distinct().
+    FieldAs("2", "x").
+    String()
+```
+
+### 16. FETCH 查询（获取属性）
 
 ```go
 // 获取顶点属性
@@ -743,7 +821,7 @@ nGQL := ngql.NewFetchEdge("serve").
     String()
 ```
 
-### 15. LOOKUP 查询（索引查询）
+### 17. LOOKUP 查询（索引查询）
 
 ```go
 // 基本 LOOKUP 查询
@@ -782,7 +860,7 @@ nGQL := ngql.NewLookup("player").
     String()
 ```
 
-### 16. GROUP BY 分组聚合
+### 18. GROUP BY 分组聚合
 
 ```go
 // 基本分组统计
@@ -831,7 +909,7 @@ nGQL := ngql.NewGroupBy(prevQuery, "$-.age").
     String()
 ```
 
-### 17. FIND PATH 路径查询
+### 19. FIND PATH 路径查询
 
 ```go
 // 查找最短路径
@@ -881,7 +959,7 @@ nGQL := ngql.NewFindPath("SHORTEST").
     String()
 ```
 
-### 18. GET SUBGRAPH 子图查询
+### 20. GET SUBGRAPH 子图查询
 
 ```go
 // 基本子图查询
@@ -1141,8 +1219,9 @@ for _, player := range players {
 | 构建器 | 方法 | 说明 |
 |--------|------|------|
 | InsertVertexBuilder | NewInsertVertex(tag, props...) | 创建插入顶点构建器 |
+| | AddTag(tag, props...) | 添加 Tag 定义（多 Tag 插入，同一 vid 挂多个 Tag） |
 | | IfNotExists() | 设置 IF NOT EXISTS 选项 |
-| | Values(vid, values...) | 添加顶点数据 |
+| | Values(vid, values...) | 添加顶点数据（多 Tag 时属性值按 Tag 顺序拼接） |
 | | String() | 生成 nGQL 语句 |
 | InsertEdgeBuilder | NewInsertEdge(edgeType, props...) | 创建插入边构建器 |
 | | IfNotExists() | 设置 IF NOT EXISTS 选项 |
@@ -1155,15 +1234,29 @@ for _, player := range players {
 | 构建器 | 方法 | 说明 |
 |--------|------|------|
 | MatchBuilder | NewMatch(pattern) | 创建 MATCH 查询构建器（pattern 必须是 Pattern 对象，如 VertexPattern 或 PathPattern） |
+| | NewOptionalMatch(pattern) | 创建 OPTIONAL MATCH 查询构建器 |
 | | Where(condition) | 添加 WHERE 条件 |
+| | With(w *WithBuilder) | 添加 WITH 子句（中间投影与范围过滤） |
+| | Unwind(expr, alias) | 添加 UNWIND 子句（展开列表为多行） |
 | | Return(fields...) | 添加返回字段 |
+| | ReturnDistinct(fields...) | 添加返回字段并去重（RETURN DISTINCT） |
 | | OrderBy(field, desc) | 添加排序 |
 | | Limit(limit) | 设置返回数量限制 |
 | | Skip(skip) | 设置跳过数量 |
 | | String() | 生成 nGQL 语句 |
+| WithBuilder | NewWith() | 创建 WITH 子句构建器 |
+| | Field(expr) / FieldAs(expr, alias) | 添加字段表达式 |
+| | Where(condition) | 添加 WITH 内过滤条件（多次调用以 AND 连接） |
+| | OrderBy(field, desc) / Skip(n) / Limit(n) | WITH 内排序与分页 |
+| | String() | 生成 WITH 子句 |
+| YieldBuilder | NewYield() | 创建独立 YIELD 语句构建器 |
+| | Distinct() | 设置 DISTINCT 选项 |
+| | Field(expr) / FieldAs(expr, alias) | 添加字段表达式 |
+| | String() | 生成 YIELD 语句 |
 | GoBuilder | NewGo(fromVids...) | 创建 GO 查询构建器 |
 | | Over(edges...) | 指定要遍历的边类型 |
 | | Steps(steps) | 设置遍历步数 |
+| | StepsRange(min, max) | 设置变长遍历步数（M TO N STEPS） |
 | | Reversely() | 反向遍历 |
 | | Bidirect() | 双向遍历 |
 | | Where(condition) | 添加过滤条件 |
@@ -1239,6 +1332,8 @@ for _, player := range players {
 | DeleteEdgeBuilder | NewDeleteEdge(edgeType) | 创建删除边构建器 |
 | | Edge(srcVid, dstVid) | 添加要删除的边 |
 | | EdgeWithRank(srcVid, dstVid, rank) | 添加要删除的带 rank 的边 |
+| | String() | 生成 nGQL 语句 |
+| DeleteTagBuilder | NewDeleteTag(tagName, vids...) | 创建 DELETE TAG 构建器（移除顶点上指定的 Tag） |
 | | String() | 生成 nGQL 语句 |
 
 ## 参考文档

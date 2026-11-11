@@ -15,9 +15,9 @@ type Pattern interface {
 // VertexPattern 顶点模式
 // 语法：(variable[:tag] [{prop: value, ...}])
 type VertexPattern struct {
-	variable   string                 // 变量名，可选
-	tags       []string               // Tag 列表，可选
-	properties map[string]interface{} // 属性过滤条件，可选
+	variable   string  // 变量名，可选
+	tags       []string // Tag 列表，可选
+	properties kvPairs // 属性过滤条件，按添加顺序输出，可选
 }
 
 // NewVertexPattern 创建顶点模式
@@ -30,7 +30,7 @@ func NewVertexPattern(variable string) *VertexPattern {
 	return &VertexPattern{
 		variable:   variable,
 		tags:       make([]string, 0),
-		properties: make(map[string]interface{}),
+		properties: make(kvPairs, 0),
 	}
 }
 
@@ -40,9 +40,9 @@ func (p *VertexPattern) Tag(tag string) *VertexPattern {
 	return p
 }
 
-// Property 添加属性过滤条件
+// Property 添加属性过滤条件，同名属性后设置覆盖先设置
 func (p *VertexPattern) Property(key string, value interface{}) *VertexPattern {
-	p.properties[key] = value
+	p.properties.set(key, value)
 	return p
 }
 
@@ -59,19 +59,25 @@ func (p *VertexPattern) String() string {
 	// Tag 列表
 	if len(p.tags) > 0 {
 		sb.WriteString(":")
-		sb.WriteString(strings.Join(p.tags, ":"))
+		tagStrs := make([]string, 0, len(p.tags))
+		for _, tag := range p.tags {
+			tagStrs = append(tagStrs, backquoteIfNeed(tag))
+		}
+		sb.WriteString(strings.Join(tagStrs, ":"))
 	}
 
 	// 属性过滤
 	if len(p.properties) > 0 {
 		sb.WriteString(" {")
 		first := true
-		for key, value := range p.properties {
+		for _, kv := range p.properties {
 			if !first {
 				sb.WriteString(", ")
 			}
 			first = false
-			sb.WriteString(fmt.Sprintf("%s: %v", key, formatValue(value)))
+			sb.WriteString(backquoteIfNeed(kv.key))
+			sb.WriteString(": ")
+			sb.WriteString(formatValue(kv.value))
 		}
 		sb.WriteString("}")
 	}
@@ -94,12 +100,13 @@ const (
 // EdgePattern 边模式
 // 语法：-[variable[:edge_type] [{prop: value, ...}] [*[min..max]]]-{>|<|-}
 type EdgePattern struct {
-	variable   string                 // 变量名，可选
-	edgeTypes  []string               // 边类型列表，可选
-	properties map[string]interface{} // 属性过滤条件，可选
-	direction  EdgeDirection          // 边的方向
-	minHops    int                    // 最小跳数，0 表示不限制
-	maxHops    int                    // 最大跳数，0 表示不限制
+	variable   string  // 变量名，可选
+	edgeTypes  []string // 边类型列表，可选
+	properties kvPairs // 属性过滤条件，按添加顺序输出，可选
+	direction  EdgeDirection // 边的方向
+	minHops    int           // 最小跳数，0 表示不限制
+	maxHops    int           // 最大跳数，0 表示不限制
+	hasHops    bool          // 是否设置了变长边（Hops(0, 0) 表示任意跳数）
 }
 
 // NewEdgePattern 创建边模式
@@ -111,7 +118,7 @@ type EdgePattern struct {
 func NewEdgePattern(direction EdgeDirection) *EdgePattern {
 	return &EdgePattern{
 		edgeTypes:  make([]string, 0),
-		properties: make(map[string]interface{}),
+		properties: make(kvPairs, 0),
 		direction:  direction,
 	}
 }
@@ -128,9 +135,9 @@ func (p *EdgePattern) Type(edgeType string) *EdgePattern {
 	return p
 }
 
-// Property 添加属性过滤条件
+// Property 添加属性过滤条件，同名属性后设置覆盖先设置
 func (p *EdgePattern) Property(key string, value interface{}) *EdgePattern {
-	p.properties[key] = value
+	p.properties.set(key, value)
 	return p
 }
 
@@ -140,10 +147,13 @@ func (p *EdgePattern) Property(key string, value interface{}) *EdgePattern {
 // 示例：
 //   - Hops(2, 2) -> *2
 //   - Hops(1, 3) -> *1..3
+//   - Hops(1, 0) -> *1..（无上限）
+//   - Hops(0, 3) -> *..3（无下限）
 //   - Hops(0, 0) -> * (任意跳数)
 func (p *EdgePattern) Hops(min, max int) *EdgePattern {
 	p.minHops = min
 	p.maxHops = max
+	p.hasHops = true
 	return p
 }
 
@@ -152,7 +162,7 @@ func (p *EdgePattern) String() string {
 	var sb strings.Builder
 
 	// 边定义
-	hasEdgeInfo := p.variable != "" || len(p.edgeTypes) > 0 || len(p.properties) > 0 || p.minHops > 0 || p.maxHops > 0
+	hasEdgeInfo := p.variable != "" || len(p.edgeTypes) > 0 || len(p.properties) > 0 || p.hasHops
 
 	if hasEdgeInfo {
 		// 左侧连接符
@@ -171,31 +181,37 @@ func (p *EdgePattern) String() string {
 		// 边类型
 		if len(p.edgeTypes) > 0 {
 			sb.WriteString(":")
-			sb.WriteString(strings.Join(p.edgeTypes, "|"))
+			typeStrs := make([]string, 0, len(p.edgeTypes))
+			for _, edgeType := range p.edgeTypes {
+				typeStrs = append(typeStrs, backquoteIfNeed(edgeType))
+			}
+			sb.WriteString(strings.Join(typeStrs, "|"))
 		}
 
 		// 属性过滤
 		if len(p.properties) > 0 {
 			sb.WriteString(" {")
 			first := true
-			for key, value := range p.properties {
+			for _, kv := range p.properties {
 				if !first {
 					sb.WriteString(", ")
 				}
 				first = false
-				sb.WriteString(fmt.Sprintf("%s: %v", key, formatValue(value)))
+				sb.WriteString(backquoteIfNeed(kv.key))
+				sb.WriteString(": ")
+				sb.WriteString(formatValue(kv.value))
 			}
 			sb.WriteString("}")
 		}
 
 		// 变长边
-		if p.minHops > 0 || p.maxHops > 0 {
+		if p.hasHops {
 			sb.WriteString("*")
 			if p.minHops == p.maxHops && p.minHops > 0 {
 				// 固定步数：*2
 				sb.WriteString(fmt.Sprintf("%d", p.minHops))
 			} else if p.minHops > 0 || p.maxHops > 0 {
-				// 范围步数：*1..3
+				// 范围步数：*1..3（min/max 为 0 表示对应边界不限制）
 				if p.minHops > 0 {
 					sb.WriteString(fmt.Sprintf("%d", p.minHops))
 				}

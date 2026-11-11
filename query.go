@@ -8,10 +8,15 @@ import (
 // ============ MATCH 查询 ============
 
 // MatchBuilder MATCH 查询构建器
+// 子句输出顺序：[OPTIONAL] MATCH pattern [WHERE ...] [WITH ...]... [UNWIND ... AS ...]... [RETURN ...]
 type MatchBuilder struct {
 	pattern    Pattern
+	optional   bool
 	whereConds []string
 	returns    []string
+	distinct   bool
+	withs      []string // 预渲染的 WITH 子句，按添加顺序输出
+	unwinds    []string // 预渲染的 UNWIND 子句，按添加顺序输出
 	orderBy    []string
 	limit      int
 	skip       int
@@ -20,10 +25,23 @@ type MatchBuilder struct {
 // NewMatch 创建 MATCH 查询构建器
 // pattern: 匹配模式，例如 "(v:player{name:\"Tim Duncan\"})"
 func NewMatch(pattern Pattern) *MatchBuilder {
+	return newMatch(pattern, false)
+}
+
+// NewOptionalMatch 创建 OPTIONAL MATCH 查询构建器
+// 模式无匹配时不丢弃整行，对应字段以 NULL 填充
+func NewOptionalMatch(pattern Pattern) *MatchBuilder {
+	return newMatch(pattern, true)
+}
+
+func newMatch(pattern Pattern, optional bool) *MatchBuilder {
 	return &MatchBuilder{
 		pattern:    pattern,
+		optional:   optional,
 		whereConds: make([]string, 0),
 		returns:    make([]string, 0),
+		withs:      make([]string, 0),
+		unwinds:    make([]string, 0),
 		orderBy:    make([]string, 0),
 		limit:      -1,
 		skip:       -1,
@@ -36,8 +54,30 @@ func (b *MatchBuilder) Where(condition string) *MatchBuilder {
 	return b
 }
 
+// With 添加 WITH 子句
+// WITH 用于中间投影与范围过滤，可携带自身的 WHERE/ORDER BY/SKIP/LIMIT
+func (b *MatchBuilder) With(w *WithBuilder) *MatchBuilder {
+	b.withs = append(b.withs, w.String())
+	return b
+}
+
+// Unwind 添加 UNWIND 子句，将列表表达式展开为多行
+// expr: 列表表达式，例如 "names"、"[1, 2, 3]"
+// alias: 展开后的变量别名
+func (b *MatchBuilder) Unwind(expr, alias string) *MatchBuilder {
+	b.unwinds = append(b.unwinds, fmt.Sprintf("UNWIND %s AS %s", expr, alias))
+	return b
+}
+
 // Return 添加返回字段
 func (b *MatchBuilder) Return(fields ...string) *MatchBuilder {
+	b.returns = append(b.returns, fields...)
+	return b
+}
+
+// ReturnDistinct 添加返回字段并去重（RETURN DISTINCT）
+func (b *MatchBuilder) ReturnDistinct(fields ...string) *MatchBuilder {
+	b.distinct = true
 	b.returns = append(b.returns, fields...)
 	return b
 }
@@ -71,6 +111,9 @@ func (b *MatchBuilder) Skip(skip int) *MatchBuilder {
 // String 构建 nGQL 语句
 func (b *MatchBuilder) String() string {
 	var sb strings.Builder
+	if b.optional {
+		sb.WriteString("OPTIONAL ")
+	}
 	sb.WriteString("MATCH ")
 	sb.WriteString(b.pattern.String())
 
@@ -79,8 +122,21 @@ func (b *MatchBuilder) String() string {
 		sb.WriteString(strings.Join(b.whereConds, " AND "))
 	}
 
+	for _, with := range b.withs {
+		sb.WriteString(" ")
+		sb.WriteString(with)
+	}
+
+	for _, unwind := range b.unwinds {
+		sb.WriteString(" ")
+		sb.WriteString(unwind)
+	}
+
 	if len(b.returns) > 0 {
 		sb.WriteString(" RETURN ")
+		if b.distinct {
+			sb.WriteString("DISTINCT ")
+		}
 		sb.WriteString(strings.Join(b.returns, ", "))
 	}
 
@@ -93,10 +149,147 @@ func (b *MatchBuilder) String() string {
 		sb.WriteString(fmt.Sprintf(" SKIP %d", b.skip))
 	}
 
-	if b.limit > 0 {
+	if b.limit >= 0 {
 		sb.WriteString(fmt.Sprintf(" LIMIT %d", b.limit))
 	}
 
+	return sb.String()
+}
+
+// ============ WITH 子句 ============
+
+// WithBuilder MATCH 的 WITH 子句构建器
+// 输出：WITH field1[, field2...] [WHERE ...] [ORDER BY ...] [SKIP n] [LIMIT n]
+type WithBuilder struct {
+	fields     []string
+	whereConds []string
+	orderBy    []string
+	limit      int
+	skip       int
+}
+
+// NewWith 创建 WITH 子句构建器
+func NewWith() *WithBuilder {
+	return &WithBuilder{
+		fields:     make([]string, 0),
+		whereConds: make([]string, 0),
+		orderBy:    make([]string, 0),
+		limit:      -1,
+		skip:       -1,
+	}
+}
+
+// Field 添加字段表达式
+func (b *WithBuilder) Field(expr string) *WithBuilder {
+	b.fields = append(b.fields, expr)
+	return b
+}
+
+// FieldAs 添加带别名的字段表达式
+func (b *WithBuilder) FieldAs(expr, alias string) *WithBuilder {
+	b.fields = append(b.fields, fmt.Sprintf("%s AS %s", expr, alias))
+	return b
+}
+
+// Where 添加过滤条件，多次调用以 AND 连接
+func (b *WithBuilder) Where(condition string) *WithBuilder {
+	b.whereConds = append(b.whereConds, condition)
+	return b
+}
+
+// OrderBy 添加排序
+func (b *WithBuilder) OrderBy(field string, desc bool) *WithBuilder {
+	order := field
+	if desc {
+		order += " DESC"
+	} else {
+		order += " ASC"
+	}
+	b.orderBy = append(b.orderBy, order)
+	return b
+}
+
+// Skip 设置跳过数量
+func (b *WithBuilder) Skip(skip int) *WithBuilder {
+	b.skip = skip
+	return b
+}
+
+// Limit 设置返回数量限制
+func (b *WithBuilder) Limit(limit int) *WithBuilder {
+	b.limit = limit
+	return b
+}
+
+// String 构建 WITH 子句
+func (b *WithBuilder) String() string {
+	var sb strings.Builder
+	sb.WriteString("WITH ")
+	sb.WriteString(strings.Join(b.fields, ", "))
+
+	if len(b.whereConds) > 0 {
+		sb.WriteString(" WHERE ")
+		sb.WriteString(strings.Join(b.whereConds, " AND "))
+	}
+
+	if len(b.orderBy) > 0 {
+		sb.WriteString(" ORDER BY ")
+		sb.WriteString(strings.Join(b.orderBy, ", "))
+	}
+
+	if b.skip > 0 {
+		sb.WriteString(fmt.Sprintf(" SKIP %d", b.skip))
+	}
+
+	if b.limit >= 0 {
+		sb.WriteString(fmt.Sprintf(" LIMIT %d", b.limit))
+	}
+
+	return sb.String()
+}
+
+// ============ YIELD 语句 ============
+
+// YieldBuilder 独立 YIELD 语句构建器
+// 输出：YIELD [DISTINCT] field1[, field2...]
+type YieldBuilder struct {
+	distinct bool
+	fields   []string
+}
+
+// NewYield 创建独立 YIELD 语句构建器
+func NewYield() *YieldBuilder {
+	return &YieldBuilder{
+		fields: make([]string, 0),
+	}
+}
+
+// Distinct 设置 DISTINCT 选项
+func (b *YieldBuilder) Distinct() *YieldBuilder {
+	b.distinct = true
+	return b
+}
+
+// Field 添加字段表达式
+func (b *YieldBuilder) Field(expr string) *YieldBuilder {
+	b.fields = append(b.fields, expr)
+	return b
+}
+
+// FieldAs 添加带别名的字段表达式
+func (b *YieldBuilder) FieldAs(expr, alias string) *YieldBuilder {
+	b.fields = append(b.fields, fmt.Sprintf("%s AS %s", expr, alias))
+	return b
+}
+
+// String 构建 YIELD 语句
+func (b *YieldBuilder) String() string {
+	var sb strings.Builder
+	sb.WriteString("YIELD ")
+	if b.distinct {
+		sb.WriteString("DISTINCT ")
+	}
+	sb.WriteString(strings.Join(b.fields, ", "))
 	return sb.String()
 }
 
@@ -106,10 +299,11 @@ func (b *MatchBuilder) String() string {
 type GoBuilder struct {
 	fromVids    []string
 	overEdges   []string
-	steps       int
+	steps       int  // 步数（StepsRange 设置时为最小步数）
+	maxSteps    int  // 最大步数，>0 表示变长步数 M TO N STEPS
 	reversely   bool
 	bidirect    bool
-	whereCond   string
+	whereConds  []string
 	yieldFields []string
 }
 
@@ -136,6 +330,13 @@ func (b *GoBuilder) Steps(steps int) *GoBuilder {
 	return b
 }
 
+// StepsRange 设置变长遍历步数范围，输出 M TO N STEPS
+func (b *GoBuilder) StepsRange(min, max int) *GoBuilder {
+	b.steps = min
+	b.maxSteps = max
+	return b
+}
+
 // Reversely 反向遍历
 func (b *GoBuilder) Reversely() *GoBuilder {
 	b.reversely = true
@@ -148,9 +349,9 @@ func (b *GoBuilder) Bidirect() *GoBuilder {
 	return b
 }
 
-// Where 添加过滤条件
+// Where 添加过滤条件，多次调用以 AND 连接
 func (b *GoBuilder) Where(condition string) *GoBuilder {
-	b.whereCond = condition
+	b.whereConds = append(b.whereConds, condition)
 	return b
 }
 
@@ -165,7 +366,9 @@ func (b *GoBuilder) String() string {
 	var sb strings.Builder
 	sb.WriteString("GO ")
 
-	if b.steps > 1 {
+	if b.maxSteps > 0 {
+		sb.WriteString(fmt.Sprintf("%d TO %d STEPS ", b.steps, b.maxSteps))
+	} else if b.steps > 1 {
 		sb.WriteString(fmt.Sprintf("%d STEPS ", b.steps))
 	}
 
@@ -180,7 +383,11 @@ func (b *GoBuilder) String() string {
 	if len(b.overEdges) == 0 {
 		sb.WriteString("*")
 	} else {
-		sb.WriteString(strings.Join(b.overEdges, ", "))
+		edgeStrs := make([]string, 0, len(b.overEdges))
+		for _, edge := range b.overEdges {
+			edgeStrs = append(edgeStrs, backquoteIfNeed(edge))
+		}
+		sb.WriteString(strings.Join(edgeStrs, ", "))
 	}
 
 	if b.reversely {
@@ -191,9 +398,9 @@ func (b *GoBuilder) String() string {
 		sb.WriteString(" BIDIRECT")
 	}
 
-	if b.whereCond != "" {
+	if len(b.whereConds) > 0 {
 		sb.WriteString(" WHERE ")
-		sb.WriteString(b.whereCond)
+		sb.WriteString(strings.Join(b.whereConds, " AND "))
 	}
 
 	if len(b.yieldFields) > 0 {
@@ -274,7 +481,7 @@ func (b *FetchBuilder) String() string {
 	sb.WriteString("FETCH PROP ON ")
 
 	if b.propOn == "VERTEX" {
-		sb.WriteString(b.tag)
+		sb.WriteString(backquoteIfNeed(b.tag))
 		sb.WriteString(" ")
 		vidStrs := make([]string, 0, len(b.vids))
 		for _, vid := range b.vids {
@@ -282,7 +489,7 @@ func (b *FetchBuilder) String() string {
 		}
 		sb.WriteString(strings.Join(vidStrs, ", "))
 	} else {
-		sb.WriteString(b.propOn)
+		sb.WriteString(backquoteIfNeed(b.propOn))
 		sb.WriteString(" ")
 		edgeStrs := make([]string, 0, len(b.edges))
 		for _, e := range b.edges {
@@ -361,7 +568,7 @@ func (b *LookupBuilder) Skip(skip int) *LookupBuilder {
 func (b *LookupBuilder) String() string {
 	var sb strings.Builder
 	sb.WriteString("LOOKUP ON ")
-	sb.WriteString(b.onType)
+	sb.WriteString(backquoteIfNeed(b.onType))
 
 	if len(b.whereConds) > 0 {
 		sb.WriteString(" WHERE ")
@@ -380,7 +587,7 @@ func (b *LookupBuilder) String() string {
 		sb.WriteString(fmt.Sprintf(" | SKIP %d", b.skip))
 	}
 
-	if b.limit > 0 {
+	if b.limit >= 0 {
 		sb.WriteString(fmt.Sprintf(" | LIMIT %d", b.limit))
 	}
 
@@ -448,11 +655,17 @@ func (b *GroupByBuilder) Skip(skip int) *GroupByBuilder {
 func (b *GroupByBuilder) String() string {
 	var sb strings.Builder
 	sb.WriteString(b.prevQuery)
-	sb.WriteString(" | GROUP BY ")
-	sb.WriteString(strings.Join(b.groupByVars, ", "))
 
-	if len(b.yieldFields) > 0 {
-		sb.WriteString(" YIELD ")
+	if len(b.groupByVars) > 0 {
+		sb.WriteString(" | GROUP BY ")
+		sb.WriteString(strings.Join(b.groupByVars, ", "))
+		if len(b.yieldFields) > 0 {
+			sb.WriteString(" YIELD ")
+			sb.WriteString(strings.Join(b.yieldFields, ", "))
+		}
+	} else if len(b.yieldFields) > 0 {
+		// 未指定分组变量时不输出 GROUP BY，避免生成非法语句
+		sb.WriteString(" | YIELD ")
 		sb.WriteString(strings.Join(b.yieldFields, ", "))
 	}
 
@@ -465,7 +678,7 @@ func (b *GroupByBuilder) String() string {
 		sb.WriteString(fmt.Sprintf(" | SKIP %d", b.skip))
 	}
 
-	if b.limit > 0 {
+	if b.limit >= 0 {
 		sb.WriteString(fmt.Sprintf(" | LIMIT %d", b.limit))
 	}
 
@@ -474,16 +687,23 @@ func (b *GroupByBuilder) String() string {
 
 // ============ FIND PATH 路径查询 ============
 
+// FIND PATH 路径类型常量
+const (
+	PathTypeShortest = "SHORTEST" // 最短路径
+	PathTypeAll      = "ALL"      // 所有路径
+	PathTypeNoLoop   = "NOLOOP"   // 不含环的路径
+)
+
 // FindPathBuilder FIND PATH 查询构建器
 type FindPathBuilder struct {
-	pathType    string   // SHORTEST, ALL, NOLOOP
+	pathType    string   // SHORTEST, ALL, NOLOOP（见 PathTypeShortest 等常量）
 	withProp    bool     // 是否包含属性
 	fromVids    []string // 起始顶点列表
 	toVids      []string // 目标顶点列表
 	overEdges   []string // 边类型列表
 	reversely   bool     // 反向遍历
 	bidirect    bool     // 双向遍历
-	whereCond   string   // WHERE 条件
+	whereConds  []string // WHERE 条件列表
 	upToSteps   int      // 最大步数
 	yieldFields []string // YIELD 字段
 	orderBy     []string // ORDER BY 子句
@@ -541,9 +761,9 @@ func (b *FindPathBuilder) Bidirect() *FindPathBuilder {
 	return b
 }
 
-// Where 添加过滤条件
+// Where 添加过滤条件，多次调用以 AND 连接
 func (b *FindPathBuilder) Where(condition string) *FindPathBuilder {
-	b.whereCond = condition
+	b.whereConds = append(b.whereConds, condition)
 	return b
 }
 
@@ -606,7 +826,11 @@ func (b *FindPathBuilder) String() string {
 	if len(b.overEdges) == 0 {
 		sb.WriteString("*")
 	} else {
-		sb.WriteString(strings.Join(b.overEdges, ", "))
+		edgeStrs := make([]string, 0, len(b.overEdges))
+		for _, edge := range b.overEdges {
+			edgeStrs = append(edgeStrs, backquoteIfNeed(edge))
+		}
+		sb.WriteString(strings.Join(edgeStrs, ", "))
 	}
 
 	if b.reversely {
@@ -617,9 +841,9 @@ func (b *FindPathBuilder) String() string {
 		sb.WriteString(" BIDIRECT")
 	}
 
-	if b.whereCond != "" {
+	if len(b.whereConds) > 0 {
 		sb.WriteString(" WHERE ")
-		sb.WriteString(b.whereCond)
+		sb.WriteString(strings.Join(b.whereConds, " AND "))
 	}
 
 	if b.upToSteps > 0 {
@@ -636,7 +860,7 @@ func (b *FindPathBuilder) String() string {
 		sb.WriteString(strings.Join(b.orderBy, ", "))
 	}
 
-	if b.limit > 0 {
+	if b.limit >= 0 {
 		sb.WriteString(fmt.Sprintf(" | LIMIT %d", b.limit))
 	}
 
@@ -739,17 +963,17 @@ func (b *GetSubgraphBuilder) String() string {
 	// 处理边类型和方向
 	if len(b.inEdges) > 0 {
 		sb.WriteString(" IN ")
-		sb.WriteString(strings.Join(b.inEdges, ", "))
+		sb.WriteString(joinBackquoted(b.inEdges))
 	}
 
 	if len(b.outEdges) > 0 {
 		sb.WriteString(" OUT ")
-		sb.WriteString(strings.Join(b.outEdges, ", "))
+		sb.WriteString(joinBackquoted(b.outEdges))
 	}
 
 	if len(b.bothEdges) > 0 {
 		sb.WriteString(" BOTH ")
-		sb.WriteString(strings.Join(b.bothEdges, ", "))
+		sb.WriteString(joinBackquoted(b.bothEdges))
 	}
 
 	if len(b.whereConds) > 0 {

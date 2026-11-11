@@ -243,20 +243,20 @@ func ExamplePathPattern_multipleAnonymous() {
 
 // ExamplePathPattern_singleTag 演示单个 Tag
 func ExamplePathPattern_singleTag() {
-	// (a:User)-[]->(b) - a 是 User 类型
+	// (a:`User`)-[]->(b) - a 是 User 类型
 	pattern := NewPathPattern().
 		VertexWithTag("a", "User").
 		Edge(EdgeDirectionRight).
 		Vertex("b")
 
 	fmt.Println(pattern.String())
-	// Output: (a:User)->(b)
+	// Output: (a:`User`)->(b)
 }
 
 // ExamplePathPattern_multipleTags 演示多个 Tag
 // 多个 Tag 表示顶点同时具有多个标签
 func ExamplePathPattern_multipleTags() {
-	// (a:User:Admin)-[]->(b) - a 同时是 User 和 Admin
+	// (a:`User`:`Admin`)-[]->(b) - a 同时是 User 和 Admin
 	pattern := NewPathPattern().
 		VertexPattern(
 			NewVertexPattern("a").
@@ -267,24 +267,24 @@ func ExamplePathPattern_multipleTags() {
 		Vertex("b")
 
 	fmt.Println(pattern.String())
-	// Output: (a:User:Admin)->(b)
+	// Output: (a:`User`:`Admin`)->(b)
 }
 
 // ExamplePathPattern_bothWithTags 演示两端都有 Tag
 func ExamplePathPattern_bothWithTags() {
-	// (a:User)-[]->(b:Post) - 用户指向帖子
+	// (a:`User`)-[]->(b:Post) - 用户指向帖子
 	pattern := NewPathPattern().
 		VertexWithTag("a", "User").
 		Edge(EdgeDirectionRight).
 		VertexWithTag("b", "Post")
 
 	fmt.Println(pattern.String())
-	// Output: (a:User)->(b:Post)
+	// Output: (a:`User`)->(b:Post)
 }
 
 // ExamplePathPattern_complexMultiTag 演示复杂的多 Tag 场景
 func ExamplePathPattern_complexMultiTag() {
-	// (a:User:Admin:VIP)-[:CREATED]->(b:Post:Article)
+	// (a:`User`:`Admin`:VIP)-[:CREATED]->(b:Post:Article)
 	// 具有多个角色的用户创建了一个帖子/文章
 	pattern := NewPathPattern().
 		VertexPattern(
@@ -301,7 +301,7 @@ func ExamplePathPattern_complexMultiTag() {
 		)
 
 	fmt.Println(pattern.String())
-	// Output: (a:User:Admin:VIP)-[:CREATED]->(b:Post:Article)
+	// Output: (a:`User`:`Admin`:VIP)-[:CREATED]->(b:Post:Article)
 }
 
 // ============ 实际应用场景 ============
@@ -322,7 +322,7 @@ func ExamplePathPattern_socialNetwork() {
 		String()
 
 	fmt.Println(query)
-	// Output: MATCH (me:User)-[:FRIEND]->(friend:User)-[:FRIEND]->(friend_of_friend:User) WHERE me.User.name == "Alice" RETURN friend_of_friend.User.name
+	// Output: MATCH (me:`User`)-[:FRIEND]->(friend:`User`)-[:FRIEND]->(friend_of_friend:`User`) WHERE me.User.name == "Alice" RETURN friend_of_friend.User.name
 }
 
 // ExamplePathPattern_contentModeration 演示内容审核场景
@@ -343,7 +343,7 @@ func ExamplePathPattern_contentModeration() {
 		String()
 
 	fmt.Println(query)
-	// Output: MATCH (admin:User:Admin)-[:CREATED]->(post:Post) RETURN admin.User.name, post.Post.title, post.Post.created_at ORDER BY post.Post.created_at DESC
+	// Output: MATCH (admin:`User`:`Admin`)-[:CREATED]->(post:Post) RETURN admin.User.name, post.Post.title, post.Post.created_at ORDER BY post.Post.created_at DESC
 }
 
 // ExamplePathPattern_recommendation 演示推荐系统场景
@@ -365,7 +365,7 @@ func ExamplePathPattern_recommendation() {
 		String()
 
 	fmt.Println(query)
-	// Output: MATCH (user:User)-[:LIKED]->(liked_post:Post)<-[:CREATED]-(author:User)-[:CREATED]->(other_post:Post) WHERE user.User.id == "user123" AND other_post.Post.id != liked_post.Post.id RETURN other_post.Post.title, author.User.name LIMIT 10
+	// Output: MATCH (user:`User`)-[:LIKED]->(liked_post:Post)<-[:CREATED]-(author:`User`)-[:CREATED]->(other_post:Post) WHERE user.User.id == "user123" AND other_post.Post.id != liked_post.Post.id RETURN other_post.Post.title, author.User.name LIMIT 10
 }
 
 // ExamplePathPattern_anonymousIntermediate 演示匿名中间节点的实际应用
@@ -385,5 +385,5 @@ func ExamplePathPattern_anonymousIntermediate() {
 		String()
 
 	fmt.Println(query)
-	// Output: MATCH (userA:User)-[:FOLLOWS]->()<-[:FOLLOWS]-(userB:User) WHERE userA.User.id == "alice" AND userB.User.id != "alice" RETURN userB.User.name
+	// Output: MATCH (userA:`User`)-[:FOLLOWS]->()<-[:FOLLOWS]-(userB:`User`) WHERE userA.User.id == "alice" AND userB.User.id != "alice" RETURN userB.User.name
 }

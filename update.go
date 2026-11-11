@@ -12,7 +12,7 @@ type UpdateVertexBuilder struct {
 	tag         string
 	vid         string
 	sets        []string
-	whenCond    string
+	whenConds   []string
 	yieldFields []string
 }
 
@@ -24,6 +24,7 @@ func NewUpdateVertex(tag, vid string) *UpdateVertexBuilder {
 		tag:         tag,
 		vid:         vid,
 		sets:        make([]string, 0),
+		whenConds:   make([]string, 0),
 		yieldFields: make([]string, 0),
 	}
 }
@@ -32,7 +33,7 @@ func NewUpdateVertex(tag, vid string) *UpdateVertexBuilder {
 // prop: 属性名
 // value: 属性值
 func (b *UpdateVertexBuilder) Set(prop string, value interface{}) *UpdateVertexBuilder {
-	b.sets = append(b.sets, fmt.Sprintf("%s = %s", prop, formatValue(value)))
+	b.sets = append(b.sets, fmt.Sprintf("%s = %s", backquoteIfNeed(prop), formatValue(value)))
 	return b
 }
 
@@ -43,9 +44,9 @@ func (b *UpdateVertexBuilder) SetExpr(expr string) *UpdateVertexBuilder {
 	return b
 }
 
-// When 添加条件
+// When 添加条件，多次调用以 AND 连接
 func (b *UpdateVertexBuilder) When(condition string) *UpdateVertexBuilder {
-	b.whenCond = condition
+	b.whenConds = append(b.whenConds, condition)
 	return b
 }
 
@@ -58,12 +59,12 @@ func (b *UpdateVertexBuilder) Yield(fields ...string) *UpdateVertexBuilder {
 // String 构建 nGQL 语句
 func (b *UpdateVertexBuilder) String() string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("UPDATE VERTEX ON %s %s SET ", b.tag, quote(b.vid)))
+	sb.WriteString(fmt.Sprintf("UPDATE VERTEX ON %s %s SET ", backquoteIfNeed(b.tag), quote(b.vid)))
 	sb.WriteString(strings.Join(b.sets, ", "))
 
-	if b.whenCond != "" {
+	if len(b.whenConds) > 0 {
 		sb.WriteString(" WHEN ")
-		sb.WriteString(b.whenCond)
+		sb.WriteString(strings.Join(b.whenConds, " AND "))
 	}
 
 	if len(b.yieldFields) > 0 {
@@ -83,7 +84,7 @@ type UpdateEdgeBuilder struct {
 	dstVid      string
 	rank        *int64
 	sets        []string
-	whenCond    string
+	whenConds   []string
 	yieldFields []string
 }
 
@@ -97,6 +98,7 @@ func NewUpdateEdge(edgeType, srcVid, dstVid string) *UpdateEdgeBuilder {
 		srcVid:      srcVid,
 		dstVid:      dstVid,
 		sets:        make([]string, 0),
+		whenConds:   make([]string, 0),
 		yieldFields: make([]string, 0),
 	}
 }
@@ -109,7 +111,7 @@ func (b *UpdateEdgeBuilder) WithRank(rank int64) *UpdateEdgeBuilder {
 
 // Set 设置属性值
 func (b *UpdateEdgeBuilder) Set(prop string, value interface{}) *UpdateEdgeBuilder {
-	b.sets = append(b.sets, fmt.Sprintf("%s = %s", prop, formatValue(value)))
+	b.sets = append(b.sets, fmt.Sprintf("%s = %s", backquoteIfNeed(prop), formatValue(value)))
 	return b
 }
 
@@ -119,9 +121,9 @@ func (b *UpdateEdgeBuilder) SetExpr(expr string) *UpdateEdgeBuilder {
 	return b
 }
 
-// When 添加条件
+// When 添加条件，多次调用以 AND 连接
 func (b *UpdateEdgeBuilder) When(condition string) *UpdateEdgeBuilder {
-	b.whenCond = condition
+	b.whenConds = append(b.whenConds, condition)
 	return b
 }
 
@@ -139,12 +141,12 @@ func (b *UpdateEdgeBuilder) String() string {
 		rankStr = fmt.Sprintf("@%d", *b.rank)
 	}
 	sb.WriteString(fmt.Sprintf("UPDATE EDGE ON %s %s -> %s%s SET ",
-		b.edgeType, quote(b.srcVid), quote(b.dstVid), rankStr))
+		backquoteIfNeed(b.edgeType), quote(b.srcVid), quote(b.dstVid), rankStr))
 	sb.WriteString(strings.Join(b.sets, ", "))
 
-	if b.whenCond != "" {
+	if len(b.whenConds) > 0 {
 		sb.WriteString(" WHEN ")
-		sb.WriteString(b.whenCond)
+		sb.WriteString(strings.Join(b.whenConds, " AND "))
 	}
 
 	if len(b.yieldFields) > 0 {

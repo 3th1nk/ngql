@@ -244,11 +244,18 @@ var keywords = map[string]bool{
 }
 
 func IsKeyword(s string) bool {
-	return keywords[s]
+	_, ok := keywords[s]
+	return ok
 }
 
 // IsReservedKeyword 是否为保留关键字
 func IsReservedKeyword(s string) bool {
 	reserved, ok := keywords[s]
 	return ok && reserved
+}
+
+// IsNonReservedKeyword 是否为非保留关键字
+func IsNonReservedKeyword(s string) bool {
+	reserved, ok := keywords[s]
+	return ok && !reserved
 }

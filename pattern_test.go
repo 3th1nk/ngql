@@ -52,11 +52,20 @@ func TestVertexPattern_WithMultipleProperties(t *testing.T) {
 		Tag("player").
 		Property("name", "Tim Duncan").
 		Property("age", 42)
+	// 属性按添加顺序输出（保序）
+	expected := `(v:player {name: "Tim Duncan", age: 42})`
 	result := pattern.String()
-	// 检查是否包含所有必要的部分
-	if !(result == `(v:player {name: "Tim Duncan", age: 42})` ||
-		result == `(v:player {age: 42, name: "Tim Duncan"})`) {
-		t.Errorf("Unexpected result: %s", result)
+	if result != expected {
+		t.Errorf("Expected: %s, Got: %s", expected, result)
+	}
+}
+
+func TestVertexPattern_PropertyOverwrite(t *testing.T) {
+	pattern := NewVertexPattern("v").Property("age", 30).Property("age", 42)
+	expected := `(v {age: 42})`
+	result := pattern.String()
+	if result != expected {
+		t.Errorf("Expected: %s, Got: %s", expected, result)
 	}
 }
 
@@ -67,6 +76,42 @@ func TestEdgePattern_RightDirection(t *testing.T) {
 	expected := "->"
 	if pattern.String() != expected {
 		t.Errorf("Expected: %s, Got: %s", expected, pattern.String())
+	}
+}
+
+func TestEdgePattern_AnyHops(t *testing.T) {
+	// Hops(0, 0) 表示任意跳数，输出 *
+	// 注：nGQL 语法中变长边必须在方括号内，即使无类型/变量信息
+	cases := []struct {
+		pattern  *EdgePattern
+		expected string
+	}{
+		{NewEdgePattern(EdgeDirectionRight).Type("follow").Hops(0, 0), "-[:follow*]->"},
+		{NewEdgePattern(EdgeDirectionRight).Hops(0, 0), "-[*]->"},
+	}
+	for _, c := range cases {
+		got := c.pattern.String()
+		if got != c.expected {
+			t.Errorf("Expected: %s, Got: %s", c.expected, got)
+		}
+	}
+}
+
+func TestEdgePattern_VariableLengthHops(t *testing.T) {
+	cases := []struct {
+		pattern  *EdgePattern
+		expected string
+	}{
+		{NewEdgePattern(EdgeDirectionRight).Type("follow").Hops(2, 2), "-[:follow*2]->"},
+		{NewEdgePattern(EdgeDirectionRight).Type("follow").Hops(1, 3), "-[:follow*1..3]->"},
+		{NewEdgePattern(EdgeDirectionRight).Type("follow").Hops(0, 3), "-[:follow*..3]->"},
+		{NewEdgePattern(EdgeDirectionRight).Type("follow").Hops(1, 0), "-[:follow*1..]->"},
+	}
+	for _, c := range cases {
+		got := c.pattern.String()
+		if got != c.expected {
+			t.Errorf("Expected: %s, Got: %s", c.expected, got)
+		}
 	}
 }
 
@@ -311,11 +356,12 @@ func TestPathPattern_MultipleAnonymousVertices(t *testing.T) {
 
 func TestPathPattern_SingleTag(t *testing.T) {
 	// 测试单个 Tag：(a:User)-[]->(b)
+	// User 是非保留关键字且含大写字母，需自动加反引号（否则系统会转为全小写导致失配）
 	pattern := NewPathPattern().
 		VertexWithTag("a", "User").
 		Edge(EdgeDirectionRight).
 		Vertex("b")
-	expected := "(a:User)->(b)"
+	expected := "(a:`User`)->(b)"
 	if pattern.String() != expected {
 		t.Errorf("Expected: %s, Got: %s", expected, pattern.String())
 	}
@@ -331,7 +377,7 @@ func TestPathPattern_MultipleTags(t *testing.T) {
 		).
 		Edge(EdgeDirectionRight).
 		Vertex("b")
-	expected := "(a:User:Admin)->(b)"
+	expected := "(a:`User`:`Admin`)->(b)"
 	if pattern.String() != expected {
 		t.Errorf("Expected: %s, Got: %s", expected, pattern.String())
 	}
@@ -343,7 +389,7 @@ func TestPathPattern_BothVerticesWithTags(t *testing.T) {
 		VertexWithTag("a", "User").
 		Edge(EdgeDirectionRight).
 		VertexWithTag("b", "Post")
-	expected := "(a:User)->(b:Post)"
+	expected := "(a:`User`)->(b:Post)"
 	if pattern.String() != expected {
 		t.Errorf("Expected: %s, Got: %s", expected, pattern.String())
 	}
@@ -351,6 +397,7 @@ func TestPathPattern_BothVerticesWithTags(t *testing.T) {
 
 func TestPathPattern_ComplexMultiTag(t *testing.T) {
 	// 测试复杂的多 Tag 场景：(a:User:Admin:VIP)-[:CREATED]->(b:Post:Article)
+	// 仅关键字（User/Admin）加反引号，非关键字（VIP/Post/Article/CREATED）保持原样
 	pattern := NewPathPattern().
 		VertexPattern(
 			NewVertexPattern("a").
@@ -364,7 +411,7 @@ func TestPathPattern_ComplexMultiTag(t *testing.T) {
 				Tag("Post").
 				Tag("Article"),
 		)
-	expected := "(a:User:Admin:VIP)-[:CREATED]->(b:Post:Article)"
+	expected := "(a:`User`:`Admin`:VIP)-[:CREATED]->(b:Post:Article)"
 	if pattern.String() != expected {
 		t.Errorf("Expected: %s, Got: %s", expected, pattern.String())
 	}

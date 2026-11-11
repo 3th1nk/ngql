@@ -5,6 +5,40 @@ import (
 	"strings"
 )
 
+// ============ 删除 Tag ============
+
+// DeleteTagBuilder DELETE TAG 构建器，删除顶点上指定的 Tag
+type DeleteTagBuilder struct {
+	tagName string
+	vids    []string
+}
+
+// NewDeleteTag 创建 DELETE TAG 构建器
+// tagName: Tag 名称
+// vids: 顶点 ID 列表
+func NewDeleteTag(tagName string, vids ...string) *DeleteTagBuilder {
+	return &DeleteTagBuilder{
+		tagName: tagName,
+		vids:    vids,
+	}
+}
+
+// String 构建 nGQL 语句
+func (b *DeleteTagBuilder) String() string {
+	var sb strings.Builder
+	sb.WriteString("DELETE TAG ")
+	sb.WriteString(backquoteIfNeed(b.tagName))
+	sb.WriteString(" FROM ")
+
+	vidStrs := make([]string, 0, len(b.vids))
+	for _, vid := range b.vids {
+		vidStrs = append(vidStrs, quote(vid))
+	}
+	sb.WriteString(strings.Join(vidStrs, ", "))
+
+	return sb.String()
+}
+
 // ============ 删除顶点 ============
 
 // DeleteVertexBuilder 删除顶点构建器
@@ -88,7 +122,7 @@ func (b *DeleteEdgeBuilder) EdgeWithRank(srcVid, dstVid string, rank int64) *Del
 // String 构建 nGQL 语句
 func (b *DeleteEdgeBuilder) String() string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("DELETE EDGE %s ", b.edgeType))
+	sb.WriteString(fmt.Sprintf("DELETE EDGE %s ", backquoteIfNeed(b.edgeType)))
 
 	edgeStrs := make([]string, 0, len(b.edges))
 	for _, e := range b.edges {
