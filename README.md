@@ -20,7 +20,9 @@
 ├── query.go         # 查询操作（MatchBuilder, GoBuilder, FetchBuilder, LookupBuilder, GroupByBuilder）
 ├── update.go        # 更新操作（UpdateVertexBuilder, UpdateEdgeBuilder）
 ├── upsert.go        # UPSERT 操作（UpsertVertexBuilder, UpsertEdgeBuilder）
-├── delete.go        # 删除操作（DeleteVertexBuilder, DeleteEdgeBuilder）
+├── delete.go        # 删除操作（DeleteVertexBuilder, DeleteEdgeBuilder, DeleteTagBuilder）
+├── admin.go         # 运维管理（SUBMIT JOB, SHOW HOSTS/PARTS/STATS, CONFIGS 等）
+├── user.go          # 用户与权限（CREATE/DROP/ALTER USER, GRANT/REVOKE, SHOW USERS/ROLES/GRANTS）
 ├── pattern_test.go  # 图模式构建器测试
 ├── pattern_example_test.go  # 图模式构建器示例
 ├── schema_test.go   # 图空间管理测试
@@ -32,6 +34,8 @@
 ├── update_test.go   # 更新操作测试
 ├── upsert_test.go   # UPSERT 操作测试
 ├── delete_test.go   # 删除操作测试
+├── admin_test.go    # 运维管理测试
+├── user_test.go     # 用户与权限测试
 └── README.md        # 使用文档
 ```
 
@@ -41,6 +45,8 @@
 - ✅ **类型安全** - 减少拼写错误
 - ✅ **图模式构建器** - 提供 VertexPattern、EdgePattern、PathPattern 用于类型安全的图模式构建
 - ✅ **Cypher 风格子句** - MATCH 支持 OPTIONAL MATCH、WITH、UNWIND、RETURN DISTINCT
+- ✅ **运维管理** - SUBMIT JOB、SHOW HOSTS/PARTS/STATS/SESSIONS/QUERIES、CONFIGS 动态配置
+- ✅ **用户与权限** - CREATE/DROP/ALTER USER、CHANGE PASSWORD、GRANT/REVOKE
 - ✅ **自动转义** - 自动处理值转义和格式化，防止注入
 - ✅ **模块化设计** - 每个文件职责单一，易于维护和扩展
 - ✅ **完整测试** - 测试覆盖率 92%+
@@ -60,7 +66,9 @@
 - `query.go` - 查询操作（MATCH/GO/FETCH/LOOKUP/GROUP BY/FIND PATH/GET SUBGRAPH）
 - `update.go` - 更新操作（UPDATE VERTEX/EDGE）
 - `upsert.go` - UPSERT 操作（UPSERT VERTEX/EDGE）
-- `delete.go` - 删除操作（DELETE VERTEX/EDGE）
+- `delete.go` - 删除操作（DELETE VERTEX/EDGE/TAG）
+- `admin.go` - 运维管理（SUBMIT JOB、SHOW HOSTS/PARTS/STATS/SNAPSHOTS/SESSIONS/QUERIES、CONFIGS）
+- `user.go` - 用户与权限（CREATE/DROP/ALTER USER、CHANGE PASSWORD、GRANT/REVOKE）
 
 ### 2. Builder 模式
 所有构建器都支持链式调用：
@@ -1008,6 +1016,67 @@ nGQL := ngql.NewGetSubgraph(1).
     String()
 ```
 
+### 21. 运维管理（JOB / SHOW / CONFIGS）
+
+```go
+import "github.com/3th1nk/ngql"
+
+// 提交运维任务
+nGQL := ngql.NewSubmitJob(ngql.JobTypeStats).String()
+
+// 重建指定索引
+nGQL := ngql.NewSubmitJob(ngql.JobTypeRebuildIndex).Index("player_name_index").String()
+
+// 查看任务
+nGQL := ngql.NewShowJobs().String()
+nGQL := ngql.NewShowJob(42).String()
+nGQL := ngql.NewStopJob(42).String()
+nGQL := ngql.NewRecoverJob().String()
+
+// 查看服务与集群状态
+nGQL := ngql.NewShowHosts(ngql.HostModuleStorage).String()
+nGQL := ngql.NewShowParts(5).String()
+nGQL := ngql.NewShowStats().String()
+nGQL := ngql.NewShowSnapshots().String()
+nGQL := ngql.NewShowSessions().String()
+nGQL := ngql.NewShowQueries(ngql.QueryScopeAll).String()
+nGQL := ngql.NewShowCharset().String()
+nGQL := ngql.NewShowCollation().String()
+nGQL := ngql.NewShowCreateSpace("my_space").String()
+
+// 动态配置
+nGQL := ngql.NewShowConfigs(ngql.ConfigModuleGraph).String()
+nGQL := ngql.NewUpdateConfig("graph", "heartbeat_interval_secs", 10).String()
+nGQL := ngql.NewReloadConfigs().String()
+```
+
+### 22. 用户与权限管理
+
+```go
+// 创建用户
+nGQL := ngql.NewCreateUser("user1", "pwd1").
+    IfNotExists().
+    String()
+
+// 修改密码
+nGQL := ngql.NewAlterUser("user1", "newpwd").String()
+nGQL := ngql.NewChangePassword("user1", "oldpwd", "newpwd").String()
+
+// 授予 / 回收图空间角色
+nGQL := ngql.NewGrantRole(ngql.RoleAdmin, "basketball", "user1").String()
+nGQL := ngql.NewRevokeRole(ngql.RoleUser, "basketball", "user1").String()
+
+// 删除用户
+nGQL := ngql.NewDropUser("user1").
+    IfExists().
+    String()
+
+// 查询用户与权限
+nGQL := ngql.NewShowUsers().String()
+nGQL := ngql.NewShowRoles("basketball").String()
+nGQL := ngql.NewShowGrants().String()
+```
+
 ## 最佳实践
 
 ### 1. 使用链式调用
@@ -1335,6 +1404,52 @@ for _, player := range players {
 | | String() | 生成 nGQL 语句 |
 | DeleteTagBuilder | NewDeleteTag(tagName, vids...) | 创建 DELETE TAG 构建器（移除顶点上指定的 Tag） |
 | | String() | 生成 nGQL 语句 |
+
+### 运维管理 (admin.go)
+
+| 构建器 | 方法 | 说明 |
+|--------|------|------|
+| SubmitJobBuilder | NewSubmitJob(jobType) | 创建 SUBMIT JOB 构建器（JobTypeCompact/Flush/Stats/RebuildIndex） |
+| | Index(names...) | 指定要重建的索引名列表（仅 REBUILD INDEX） |
+| | String() | 生成 nGQL 语句 |
+| ShowJobsBuilder | NewShowJobs() | 创建 SHOW JOBS 构建器 |
+| ShowJobBuilder | NewShowJob(jobID) | 创建 SHOW JOB 构建器 |
+| StopJobBuilder | NewStopJob(jobID) | 创建 STOP JOB 构建器 |
+| RecoverJobBuilder | NewRecoverJob() | 创建 RECOVER JOB 构建器 |
+| ShowHostsBuilder | NewShowHosts(module...) | 创建 SHOW HOSTS 构建器（HostModuleGraph/Meta/Storage，可选） |
+| ShowPartsBuilder | NewShowParts(partID) | 创建 SHOW PARTS 构建器（-1 显示所有分片） |
+| ShowStatsBuilder | NewShowStats() | 创建 SHOW STATS 构建器 |
+| ShowSnapshotsBuilder | NewShowSnapshots() | 创建 SHOW SNAPSHOTS 构建器 |
+| ShowSessionsBuilder | NewShowSessions() | 创建 SHOW SESSIONS 构建器 |
+| ShowQueriesBuilder | NewShowQueries(scope...) | 创建 SHOW QUERIES 构建器（QueryScopeCurrent/All，可选） |
+| ShowCharsetBuilder | NewShowCharset() | 创建 SHOW CHARSET 构建器 |
+| ShowCollationBuilder | NewShowCollation() | 创建 SHOW COLLATION 构建器 |
+| ShowCreateSpaceBuilder | NewShowCreateSpace(spaceName) | 创建 SHOW CREATE SPACE 构建器 |
+| ShowConfigsBuilder | NewShowConfigs(module...) | 创建 SHOW CONFIGS 构建器（ConfigModuleGraph/Meta/Storage，可选） |
+| UpdateConfigBuilder | NewUpdateConfig(module, key, value) | 创建 UPDATE CONFIGS 构建器（module 可选） |
+| ReloadConfigsBuilder | NewReloadConfigs() | 创建 RELOAD CONFIGS 构建器 |
+
+### 用户与权限 (user.go)
+
+| 构建器 | 方法 | 说明 |
+|--------|------|------|
+| CreateUserBuilder | NewCreateUser(userName, password) | 创建 CREATE USER 构建器 |
+| | IfNotExists() | 设置 IF NOT EXISTS 选项 |
+| | String() | 生成 nGQL 语句 |
+| DropUserBuilder | NewDropUser(userName) | 创建 DROP USER 构建器 |
+| | IfExists() | 设置 IF EXISTS 选项 |
+| | String() | 生成 nGQL 语句 |
+| AlterUserBuilder | NewAlterUser(userName, password) | 创建 ALTER USER 构建器（修改密码） |
+| | String() | 生成 nGQL 语句 |
+| ChangePasswordBuilder | NewChangePassword(userName, oldPwd, newPwd) | 创建 CHANGE PASSWORD 构建器 |
+| | String() | 生成 nGQL 语句 |
+| GrantRoleBuilder | NewGrantRole(roleType, spaceName, userName) | 创建 GRANT ROLE 构建器（RoleGOD/Admin/DBA/User/Guest） |
+| | String() | 生成 nGQL 语句 |
+| RevokeRoleBuilder | NewRevokeRole(roleType, spaceName, userName) | 创建 REVOKE ROLE 构建器 |
+| | String() | 生成 nGQL 语句 |
+| ShowUsersBuilder | NewShowUsers() | 创建 SHOW USERS 构建器 |
+| ShowRolesBuilder | NewShowRoles(spaceName) | 创建 SHOW ROLES 构建器 |
+| ShowGrantsBuilder | NewShowGrants(spaceName...) | 创建 SHOW GRANTS 构建器（可选图空间，不传查询当前用户全部权限） |
 
 ## 参考文档
 

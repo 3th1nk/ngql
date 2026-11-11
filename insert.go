@@ -40,6 +40,7 @@ func NewInsertVertex(tag string, props ...string) *InsertVertexBuilder {
 // AddTag 添加 Tag 定义（多 Tag 插入：同一 vid 同时挂多个 Tag）
 // 多 Tag 时 Values 的属性值需按各 Tag 的属性顺序依次拼接
 // 示例：
+//
 //	NewInsertVertex("t1", "a").AddTag("t2", "b").Values("v1", 1, 2)
 //	-> INSERT VERTEX t1(a), t2(b) VALUES "v1": (1, 2)
 func (b *InsertVertexBuilder) AddTag(tag string, props ...string) *InsertVertexBuilder {

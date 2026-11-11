@@ -15,9 +15,9 @@ type Pattern interface {
 // VertexPattern 顶点模式
 // 语法：(variable[:tag] [{prop: value, ...}])
 type VertexPattern struct {
-	variable   string  // 变量名，可选
+	variable   string   // 变量名，可选
 	tags       []string // Tag 列表，可选
-	properties kvPairs // 属性过滤条件，按添加顺序输出，可选
+	properties kvPairs  // 属性过滤条件，按添加顺序输出，可选
 }
 
 // NewVertexPattern 创建顶点模式
@@ -100,9 +100,9 @@ const (
 // EdgePattern 边模式
 // 语法：-[variable[:edge_type] [{prop: value, ...}] [*[min..max]]]-{>|<|-}
 type EdgePattern struct {
-	variable   string  // 变量名，可选
-	edgeTypes  []string // 边类型列表，可选
-	properties kvPairs // 属性过滤条件，按添加顺序输出，可选
+	variable   string        // 变量名，可选
+	edgeTypes  []string      // 边类型列表，可选
+	properties kvPairs       // 属性过滤条件，按添加顺序输出，可选
 	direction  EdgeDirection // 边的方向
 	minHops    int           // 最小跳数，0 表示不限制
 	maxHops    int           // 最大跳数，0 表示不限制

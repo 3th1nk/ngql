@@ -299,8 +299,8 @@ func (b *YieldBuilder) String() string {
 type GoBuilder struct {
 	fromVids    []string
 	overEdges   []string
-	steps       int  // 步数（StepsRange 设置时为最小步数）
-	maxSteps    int  // 最大步数，>0 表示变长步数 M TO N STEPS
+	steps       int // 步数（StepsRange 设置时为最小步数）
+	maxSteps    int // 最大步数，>0 表示变长步数 M TO N STEPS
 	reversely   bool
 	bidirect    bool
 	whereConds  []string
